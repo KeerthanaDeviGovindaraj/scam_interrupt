@@ -6,3 +6,5 @@ data/*.json
 .venv/
 node_modules/
 photon-bridge/.env
+data/agent_fs/cases/
+data/agent_fs/todos/
