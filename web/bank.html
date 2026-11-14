@@ -1,36 +1,60 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Mary's bank</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Mary’s bank</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"></head>
-<body><script src="nav.js"></script><main>
-<div class="card"><h1>Send money</h1><p class="muted">Signed in as Mary Lee</p>
-<label>Pay to</label><select id="payee"></select>
-<div class="row"><div><label>Amount ($)</label><input id="amount" type="number" value="3000"></div>
-<div><label>Time (demo)</label><select id="hour"><option value="">Now</option><option value="23" selected>11 PM</option>
-<option value="14">2 PM</option></select></div></div><br>
-<button onclick="send()">Send</button> <span id="result" class="muted"></span></div>
-<div class="card"><h2>Recent payments</h2><table><thead><tr><th>#</th><th>To</th><th>Amount</th><th>Status</th><th>Why</th><th></th></tr></thead>
-<tbody id="rows"></tbody></table></div>
-</main><script>
-async function load(){
-  const ps = await api("/api/payees?customer_id=mary");
-  payee.innerHTML = ps.map(p=>`<option value="${p.id}">${p.name}${p.kind==="merchant"?" ("+p.category+")":""}</option>`).join("");
-  const ray = ps.find(p=>p.name.startsWith("Ray")); if (ray) payee.value = ray.id;
-  refresh();
+<body><script src="nav.js"></script><main><div class="bank">
+  <div class="account"><p>Hello, Mary</p><b>Everyday Checking</b><p>Mary Lee</p></div>
+  <section class="panel">
+    <h2>Send money</h2>
+    <details class="demo"><summary>Demo controls</summary>
+      <div class="quick">
+        <button class="btn ghost" type="button" onclick="preset('Ray', 3000, 23)">Scam: $3,000 to Ray at 11 PM</button>
+        <button class="btn ghost" type="button" onclick="preset('David', 120, 14)">Normal: $120 to David</button>
+      </div>
+      <label for="hour">Time of day (demo)</label>
+      <select id="hour"><option value="">Right now</option><option value="23" selected>11 PM</option><option value="14">2 PM</option></select>
+    </details>
+    <label for="payee">Who are you paying?</label><select id="payee"></select>
+    <label for="amount">How much?</label><input id="amount" type="number" min="1" value="3000" inputmode="decimal">
+    <br><br><button class="btn wide" id="sendBtn" onclick="send()">Send money</button>
+    <div class="notice" id="notice" role="status"></div>
+  </section>
+  <section class="panel">
+    <h2>Your recent payments</h2>
+    <ul class="feed" id="feed"></ul>
+  </section>
+</div></main><script>
+let payees = [], last = {};
+async function load() {
+  payees = await api("/api/payees?customer_id=mary");
+  payee.innerHTML = payees.map(p => `<option value="${p.id}">${esc(p.name)}${p.kind === "merchant" ? " (" + p.category.replace("_", " ") + ")" : ""}</option>`).join("");
+  preset("Ray", 3000, 23); refresh();
 }
-async function refresh(){
-  const ts = (await api("/api/transfers")).filter(t=>t.customer_id==="mary");
-  rows.innerHTML = ts.map(t=>`<tr><td>${t.id}</td><td>${t.payee_name}</td><td>${money(t.amount)}</td><td>${pill(t.status)}</td>
-   <td class="reasons">${(t.reasons||[]).join(", ")}</td>
-   <td>${["cancelled","awaiting_family","held_review"].includes(t.status)?`<button class="secondary" onclick="override(${t.id})">Send anyway</button>`:""}</td></tr>`).join("");
+function preset(name, amt, hr) { const p = payees.find(x => x.name.startsWith(name)); if (p) payee.value = p.id; amount.value = amt; hour.value = String(hr); }
+async function refresh() {
+  const ts = (await api("/api/transfers")).filter(t => t.customer_id === "mary");
+  if (!ts.length) { feed.innerHTML = `<li class="empty">No payments yet.</li>`; return; }
+  feed.innerHTML = ts.map(t => {
+    const fresh = last[t.id] && last[t.id] !== t.status; last[t.id] = t.status;
+    const held = ["cancelled", "awaiting_family", "held_review"].includes(t.status);
+    return `<li><div class="who">${esc(t.payee_name)}</div><div class="amt">${money(t.amount)}</div>
+      <div class="state">${stamp(t.status, fresh)}${held ? `<button class="btn ghost" onclick="override(${t.id})">Send anyway</button>` : ""}</div>
+      ${(t.reasons || []).length ? `<div class="why">We checked because: ${esc(t.reasons.join(", "))}</div>` : ""}</li>`;
+  }).join("");
 }
-async function send(){
-  result.textContent="Sending…";
-  const body={customer_id:"mary",payee_id:payee.value,amount:Number(amount.value)};
-  if (hour.value!=="") body.hour=Number(hour.value);
-  const c = await api("/api/transfers",{method:"POST",body:JSON.stringify(body)});
-  result.innerHTML = c.transfer.status==="released" ? "Sent." :
-    "Paused for a quick safety check. Check your messages.";
-  refresh();
+function notice(kind, title, detail) { const el = document.getElementById("notice"); el.className = `notice show ${kind}`; el.innerHTML = esc(title) + (detail ? `<span>${esc(detail)}</span>` : ""); }
+async function send() {
+  sendBtn.disabled = true; notice("held", "Checking this payment…");
+  const body = { customer_id: "mary", payee_id: payee.value, amount: Number(amount.value) };
+  if (hour.value !== "") body.hour = Number(hour.value);
+  try {
+    const c = await api("/api/transfers", { method: "POST", body: JSON.stringify(body) });
+    if (c.transfer.status === "released") notice("sent", `Sent ${money(c.transfer.amount)} to ${c.transfer.payee_name}.`);
+    else notice("held", "We paused this payment to keep you safe.", "We sent you a message. Please read it and reply. Nothing has been sent yet.");
+  } catch (e) { notice("err", "We couldn’t send this payment.", e.message); }
+  sendBtn.disabled = false; refresh();
 }
-async function override(id){ if(confirm("Send this payment anyway? It's your decision.")){ await api(`/api/cases/${id}/override`,{method:"POST"}); refresh(); } }
+async function override(id) {
+  if (!confirm("Send this payment anyway? It’s your money and your decision.")) return;
+  await api(`/api/cases/${id}/override`, { method: "POST" }); refresh();
+}
 load(); setInterval(refresh, 2500);
 </script></body></html>

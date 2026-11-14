@@ -1,33 +1,46 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Phones</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Phones</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"></head>
 <body><script src="nav.js"></script><main>
-<p class="muted" style="text-align:center">Phone simulator. With PHOTON_MODE=live the same messages also go through Photon to real phones.</p>
 <div class="phones">
- <div class="phone"><div class="screen"><div class="ph-head">Mary (customer)</div><div class="msgs" id="m_mary"></div>
-  <div class="compose"><input id="reply" placeholder="Reply…" onkeydown="if(event.key==='Enter')sendReply()"><button onclick="sendReply()">Send</button></div></div></div>
- <div class="phone"><div class="screen"><div class="ph-head">David (trusted contact)</div><div class="msgs" id="m_david"></div></div></div>
-</div></main><script>
-function render(el, msgs, isFamily){
-  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-  el.innerHTML = msgs.map(m=>{
-    let html = `<div class="bubble ${m.direction}">${m.text}`;
-    if (isFamily && m.options && m.options.length && m.direction==="out")
-      html += `<div class="opts">${m.options.map(o=>`<button class="${o==="Cancel"?"danger":"ok"}" onclick="decide(${m.transfer_id},'${o.toLowerCase()}')">${o}</button>`).join("")}</div>`;
-    return html + "</div>";
+  <div class="phone-wrap"><h2>Mary</h2><p>Gets the safety check</p>
+    <div class="phone"><div class="screen"><div class="notch"></div>
+      <div class="ph-head"><span class="lg"></span><b>Mary’s bank</b></div>
+      <div class="msgs" id="m_mary" aria-live="polite"></div>
+      <div class="compose"><input id="reply" placeholder="Reply as Mary…" aria-label="Reply as Mary" onkeydown="if(event.key==='Enter')sendReply()">
+        <button class="btn" onclick="sendReply()">Send</button></div>
+    </div></div></div>
+  <div class="phone-wrap"><h2>David</h2><p>Mary’s trusted contact</p>
+    <div class="phone"><div class="screen"><div class="notch"></div>
+      <div class="ph-head"><span class="lg"></span><b>Scam Interrupt</b></div>
+      <div class="msgs" id="m_david" aria-live="polite"></div>
+    </div></div></div>
+</div>
+</main><script>
+const seen = { mary: 0, david: 0 };
+function render(el, msgs, isFamily, who) {
+  if (!msgs.length) { el.innerHTML = `<div class="phone-empty">No messages yet.</div>`; return; }
+  if (msgs.length === seen[who]) return;
+  seen[who] = msgs.length;
+  el.innerHTML = msgs.map(m => {
+    let h = `<div class="bubble ${m.direction}">${esc(m.text)}`;
+    if (isFamily && m.direction === "out" && (m.options || []).length)
+      h += `<div class="opts">${m.options.map(o => `<button class="btn ${o === "Cancel" ? "no" : "ok"}" onclick="decide(${m.transfer_id},'${o.toLowerCase()}')">${o}</button>`).join("")}</div>`;
+    return h + "</div>";
   }).join("");
-  if (atBottom) el.scrollTop = el.scrollHeight;
+  el.scrollTop = el.scrollHeight;
 }
-async function poll(){
-  render(m_mary, await api("/api/phone/mary"), false);
-  render(m_david, await api("/api/phone/david"), true);
+async function poll() {
+  render(m_mary, await api("/api/phone/mary"), false, "mary");
+  render(m_david, await api("/api/phone/david"), true, "david");
 }
-async function sendReply(){
-  const text = reply.value.trim(); if(!text) return;
-  const ts = await api("/api/transfers");
-  const t = ts.find(x=>x.customer_id==="mary" && x.status==="awaiting_customer");
-  if(!t){ alert("No payment is waiting for a safety check."); return; }
-  reply.value=""; await api(`/api/cases/${t.id}/reply`,{method:"POST",body:JSON.stringify({text})}); poll();
+async function sendReply() {
+  const text = reply.value.trim(); if (!text) return;
+  const t = (await api("/api/transfers")).find(x => x.customer_id === "mary" && x.status === "awaiting_customer");
+  if (!t) { alert("No payment is waiting for Mary’s answer. Send one from Mary’s bank first."); return; }
+  reply.value = "";
+  await api(`/api/cases/${t.id}/reply`, { method: "POST", body: JSON.stringify({ text }) }); poll();
 }
-async function decide(id, d){ await api(`/api/cases/${id}/family`,{method:"POST",body:JSON.stringify({decision:d})}); poll(); }
+async function decide(id, d) { await api(`/api/cases/${id}/family`, { method: "POST", body: JSON.stringify({ decision: d }) }); poll(); }
+document.querySelectorAll(".lg").forEach(e => e.innerHTML = LOGO);
 poll(); setInterval(poll, 1500);
 </script></body></html>
