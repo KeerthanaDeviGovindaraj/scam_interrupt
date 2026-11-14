@@ -18,11 +18,11 @@ Built at **HackPrinceton Fall 2026** by Keerthana and Gayatri · Main track: **B
 ---
 
 ## Contents
-[The problem](#the-problem) · [What it does](#what-it-does) · [Screens](#screens) ·
+[The problem](#the-problem) · [What it does](#what-it-does) · [How we're different](#how-were-different) · [Screens](#screens) ·
 [Architecture](#architecture) · [How the agent works](#how-the-agent-works) · [Tech stack](#tech-stack) ·
 [Sponsor tools](#sponsor-tools) · [Design and accessibility](#design-and-accessibility) ·
 [Run it](#run-it) · [Configuration](#configuration) · [API](#api) · [Project layout](#project-layout) ·
-[Tests](#tests) · [Demo script](#demo-script) · [Troubleshooting](#troubleshooting) ·
+[Tests](#tests) · [Evaluation](#evaluation) · [Demo script](#demo-script) · [Troubleshooting](#troubleshooting) ·
 [Challenges and what we learned](#challenges-and-what-we-learned) · [Privacy and safety](#privacy-and-safety) · [Team](#team)
 
 ---
@@ -36,21 +36,48 @@ already been told how to answer, and most protection tools alert family only **a
 **Grandma Mary's story**, which is also our live demo:
 
 1. A scammer texts Mary pretending to be her grandson, needing $3,000 for bail, and says to keep it secret.
-2. Mary sends $3,000 in her bank app. **Scam Interrupt holds it. Nothing is sent to the bank yet.**
-3. **Risk Scorer:** new payee, about 24× her usual amount, 11 PM → high risk, with reasons.
+2. Mary sends $3,000 in her bank app. **Scam Interrupt holds it.**
+3. **Risk Scorer** explains the risk in Mary's own terms, using her Capital One Nessie data: new payee,
+   about 24× her usual amount, 11 PM, and **"would leave $500, not enough for Rent ($1,200)."**
 4. **Safety check** (iMessage via Photon): *"Did someone contact you and ask you to send this? Did they say it
-   was urgent or secret?"* Coached, Mary replies: *"No one asked me. It's for school fees. Please hurry."*
-5. **Coaching Detector** (AI model + rules): urgency, defensive denial, a scam story → hold.
-6. **Family alert:** David, her opted-in trusted contact, gets **Approve** / **Cancel**.
-7. David calls Mary and taps **Cancel**. The transfer **never reaches Capital One Nessie**.
-8. Mary can still tap **Send anyway**: the customer keeps the final say.
-9. In the background, the **Deep Agents** planner reviews the case and writes plain-English **case notes**
-   for the bank. The dashboard shows **"Money protected: $3,000."**
+   was urgent or secret?"* Mary answers vaguely: *"It's for my grandson."*
+5. **Adaptive follow-up:** instead of a scripted question, the agent asks one question built from her own
+   words: *"How do you know Ray Collins, and did you call your grandson back on the number you usually use?"*
+   Mary: *"He called from a new number and said not to tell his mom. Ray is his lawyer."*
+6. **Coaching Detector** (AI model + rules): secrecy, a new number, a third party collecting money → coached.
+7. **Family alert:** David, her opted-in trusted contact, reads *"This looks like a **grandparent emergency
+   scam**. Nothing has been sent yet. Ask Mary: did she call her grandchild back on their usual number?"* and
+   taps **Approve** or **Cancel**.
+8. David cancels. The transfer **never settles**, and Mary gets a short, kind explanation of the scam so she
+   recognizes it next time. She can still tap **Send anyway**: the customer keeps the final say.
+9. **Bank-wide watchlist:** Ray is now flagged for every customer. Anyone who tries to pay him gets
+   *"payee linked to 1 stopped scam."*
+10. In the background, the **Deep Agents** planner reviews the case and writes plain-English **case notes**.
+    The dashboard shows **"Money protected: $3,000"** and **"Looks like: grandparent emergency scam."**
 
-A normal $120 payment to David at 2 PM goes straight through with no messages, and Nessie returns a real
-transaction id. The cancelled $3,000 has none, which proves the scam payment never reached the bank.
+Clear answers skip the follow-up: obvious scam stories go straight to the family, and ordinary, specific
+answers ("Rent for my apartment, same as every month") go straight through. A normal $120 payment to David at
+2 PM is sent instantly with no messages.
 
 <p align="center"><img src="docs/images/case_flow.png" width="900" alt="Case flow: transfer, risk score, safety check, coaching signs, family decision, memory"></p>
+
+## How we're different
+Pieces of this exist; what's new is putting them **inside the payment itself**, automated, with the family
+deciding.
+
+| | Bank staff tools (e.g. Botminds) | Senior apps (e.g. OnGuardAI) | **Scam Interrupt** |
+|---|---|---|---|
+| Holds the money | Bank holds it, then staff call | No: outside the bank | **Yes: inside the payment (Nessie)** |
+| Questions | Scripted for the fraud team | Alerts only | **Adaptive: built from her own story** |
+| Who talks to the customer | A human fraud agent | Notifications | **Automated, in seconds, in her own iMessage** |
+| Family's role | Not built in | Gets notified | **Decides with one tap; told what to ask** |
+| Explains risk in her terms | Scam evidence | Call patterns | **Her own balance and bills** |
+| Protects other customers | Per call | Per person | **Bank-wide payee watchlist** |
+| Built for older adults | Staff software | Yes | **Low-vision font, high contrast, plain language** |
+
+Researchers recommend exactly this layer: pausing a high-risk payment until a trusted contact confirms it,
+for example before a first payment to a new payee
+([Information, 2026](https://doi.org/10.3390/info17111065)).
 
 ## Screens
 
@@ -78,8 +105,16 @@ transaction id. The cancelled $3,000 has none, which proves the scam payment nev
 - **Backend services:** Capital One Nessie v2 (accounts and transfers), Photon 2.0 (iMessage), Groq (models),
   LangSmith (agent traces), and SQLite plus files (cases and notes).
 
-**The key design rule:** our app holds every risky transfer and only posts it to Nessie after it's approved.
-Nessie never sees a scam payment that was cancelled.
+**The key design rule:** a risky payment never settles until it's approved. Two ways to enforce it
+(`NESSIE_HOLD`):
+- **`app` (default):** our app holds the transfer and only posts it to Nessie after approval. A cancelled scam
+  never reaches the bank.
+- **`hook`:** the transfer is created in Nessie right away and the **bank itself waits for our answer**, using
+  Nessie's **decision hooks**. We approve normal payments at once, ask Nessie to wait while Mary and David
+  answer, then approve or decline with our reason recorded on the bank's transaction. If our service is
+  unreachable, Nessie declines (fail safe).
+
+<p align="center"><img src="docs/images/decision_hooks.png" width="860" alt="Nessie decision hook flow"></p>
 
 ## How the agent works
 
@@ -93,6 +128,10 @@ Nessie never sees a scam payment that was cancelled.
     the stored signals.
   - **coaching-detector** runs or reviews the coaching verdict (urgency, secrecy, defensive denial, scam stories).
   - **family-messenger** writes a short, calm alert for the trusted contact.
+  - **interviewer** reviews the adaptive follow-up: what it revealed and why a scammer couldn't script it.
+- **Scam playbooks as files:** six playbooks (grandparent emergency, government impersonation, "safe account"
+  bank impersonation, tech support, romance, prize) live in the agent's file system at `/playbooks/<type>.md`.
+  The agent reads the matching one and names the scam in its notes.
 - **Case notebook (real files):** `data/agent_fs/customers/<id>/profile.md` and
   `data/agent_fs/cases/<id>/notes.md`. Agents add sections with `append_note`, which keeps them in order and
   skips duplicates: Plan → Risk analysis → Safety check → Family alert → Agent review → Outcome.
@@ -103,6 +142,23 @@ Nessie never sees a scam payment that was cancelled.
 - **Two modes:** `AGENT_BACKGROUND=true` (default) acts instantly and runs the agent as a background
   reviewer; `AGENT_BACKGROUND=false` lets the planner make the decisions itself (slower).
 - **Traces:** every run appears in LangSmith as `scam-interrupt:<event>-review`.
+
+## Safety checks in detail
+**Risk Scorer** (`backend/risk.py`), each reason shown to the customer and the bank:
+- new payee; amount far above her usual (learned from her Nessie transaction history); unusual hour;
+  gift card or crypto merchant
+- **more than her available balance**, or **would leave too little for an upcoming bill** (Nessie bills)
+- **payee linked to a stopped scam** (bank-wide watchlist built from cancelled cases)
+
+**Coaching Detector + adaptive follow-up** (`backend/coaching.py`, `backend/followup.py`):
+- The first answer is judged **coached**, **calm**, or **unclear** by the AI model, with a rules safety net
+  (urgency, secrecy, defensive denial, scam stories, how well she knows the payee).
+- **Unclear** → one follow-up question from her own words and the matching scam playbook. It never asks for
+  passwords, codes or account numbers, and never accuses.
+- Still unclear after the follow-up → treated as coached, and the family decides.
+
+**Scam playbooks** (`backend/playbooks.py`): name the scam in the family alert, tell the family what to ask,
+and send Mary a short explanation after a cancel.
 
 ## Tech stack
 
@@ -116,8 +172,9 @@ Coaching Detector and `openai/gpt-oss-20b` for the planner, so each uses its own
 Detector asks the model for JSON and always keeps a **rule-based safety net**, so the demo works even if the
 model is slow or unavailable. **LangSmith** records every agent run as a trace.
 
-**Banking.** **Capital One Nessie v2**: Bearer-token auth, amounts in cents, and `POST /data/seed` for a
-ready-made demo bank. An offline **mock Nessie** with the same interface lets us build and demo without Wi-Fi.
+**Banking.** **Capital One Nessie v2**: Bearer-token auth, amounts in cents, `POST /data/seed` for a ready-made
+demo bank, customers and accounts (Ray is his own customer), deposits, **bills**, **balances**, **transaction
+history**, and **decision hooks** (`POST /webhooks` with `mode: decision`, `POST /transactions/{id}/decision`). An offline **mock Nessie** with the same interface lets us build and demo without Wi-Fi.
 
 **Messaging.** **Photon 2.0** sends the safety check and the family alert as iMessages and delivers replies
 to our webhook (exposed with a tunnel such as ngrok during development). An on-screen **phone simulator**
@@ -133,9 +190,9 @@ We built with **Claude Code**, connected to **ChatOverflow** so our coding agent
 
 | Sponsor | How we use it |
 |---|---|
-| **Capital One Nessie** | Accounts, transfers and merchants feed the risk score; a held transfer is posted to Nessie only after approval |
-| **Photon 2.0** | The customer safety check and the family Approve/Cancel alert run over iMessage |
-| **LangChain Deep Agents** | Planner, three sub-agents, planning tool, file-system case notebook, guardrailed tools; traced in LangSmith |
+| **Capital One Nessie** | Balances, bills and transaction history explain the risk in Mary's terms; a bank-wide payee watchlist; decision hooks let the bank itself hold and decline a scam transfer |
+| **Photon 2.0** | The safety check, the adaptive follow-up conversation, and the family alert run over iMessage (`photon-bridge/`, built with the Spectrum SDK) |
+| **LangChain Deep Agents** | Planner, four sub-agents, planning tool, file system (case notebook + scam playbooks), guardrailed tools; traced in LangSmith |
 | **Amazon (Best Practical AI)** | A practical agent that reasons, acts on real transactions, and adapts to each customer's habits |
 | **ChatOverflow** | Our coding agents were connected while we built |
 
@@ -174,6 +231,14 @@ reply as Mary → tap **Cancel** as David → Bank dashboard.
 4. **Deep Agents + LangSmith:** set `AGENT_MODE=deepagents`, `AGENT_BACKGROUND=true`,
    `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT=scam-interrupt`.
 
+5. **Follow-up question:** on by default (`FOLLOW_UP=true`).
+6. **Nessie decision hooks (optional):** with ngrok running, register the hook once:
+   ```bash
+   python -m scripts.register_nessie_hook https://<your-id>.ngrok-free.app
+   ```
+   Put the printed `NESSIE_HOOK_SECRET` in `.env`, set `NESSIE_HOLD=hook`, and restart. Set `NESSIE_HOLD=app`
+   to go back. See [`docs/UPGRADES.md`](docs/UPGRADES.md).
+
 The home page shows chips for what's running: Nessie, Photon, Deep Agents, and the AI model.
 
 ## Configuration
@@ -191,6 +256,10 @@ The home page shows chips for what's running: Nessie, Photon, Deep Agents, and t
 | `AGENT_MODE` | `deepagents` | `pipeline` or `deepagents` |
 | `AGENT_BACKGROUND` | `true` | `true`: act instantly, review in background; `false`: agent decides |
 | `LANGSMITH_TRACING` / `LANGSMITH_API_KEY` / `LANGSMITH_PROJECT` | `true` / … / `scam-interrupt` | Agent traces |
+| `FOLLOW_UP` | `true` | Ask one adaptive follow-up when the first answer is unclear |
+| `NESSIE_HOLD` | `app` | `app`: our app holds risky transfers; `hook`: Nessie holds them and asks us |
+| `NESSIE_HOOK_SECRET` | | Signing secret printed by `scripts.register_nessie_hook` |
+| `PUBLIC_URL` | `https://….ngrok-free.app` | Public URL for Photon and Nessie webhooks |
 | `MARY_PHONE` / `DAVID_PHONE` | `+1…` | Demo phones (teammates, with consent); saved at seed time |
 | `DB_PATH` | `data/scam_interrupt.db` | SQLite file |
 
@@ -211,8 +280,9 @@ Never commit `.env`; it's in `.gitignore`.
 | POST | `/api/cases/{id}/override` | Customer's "Send anyway" |
 | GET | `/api/cases/{id}/notes` | The agent's case notes (markdown) |
 | GET | `/api/phone/{owner_id}` | Messages for the phone simulator |
-| GET | `/api/dashboard` | Money protected, scams stopped, false-alarm rate, all transfers |
+| GET | `/api/dashboard` | Money protected, scams stopped, false-alarm rate, flagged payees, all transfers |
 | POST | `/webhooks/photon` | Inbound Photon messages |
+| POST | `/webhooks/nessie-decision` | Nessie decision hook (signed); approve, decline, or "ask again later" |
 
 Interactive docs: **http://localhost:8000/docs**
 
@@ -225,15 +295,20 @@ scam-interrupt/
 │   ├── agent.py            Deep Agents planner, 3 sub-agents, case notebook, guardrails, fast mode
 │   ├── risk.py             Risk Scorer rules
 │   ├── coaching.py         Coaching Detector (LLM JSON + rules safety net)
+│   ├── followup.py         adaptive follow-up: coached / calm / unclear, one personalized question
+│   ├── playbooks.py        six scam playbooks: name, what family should ask, tip for the customer
+│   ├── nessie_hooks.py     Nessie decision hooks (signature check, approve / decline / wait)
 │   ├── memory.py           customer habits from Nessie history (+ baseline)
 │   ├── nessie.py           Capital One Nessie v2 client + offline mock
 │   ├── messaging.py        message log; sends through Photon in live mode
 │   ├── photon_adapter.py   Photon 2.0 integration
 │   ├── seed.py             demo data (mock or Nessie /data/seed)
 │   ├── db.py, config.py
+├── photon-bridge/          TypeScript bridge to Photon (Spectrum SDK) for iMessage
 ├── web/                    index, bank, phones, dashboard, style.css, nav.js, logo.svg
-├── scripts/try_coaching.py 10-answer test for the Coaching Detector
-├── tests/                  test_core.py, test_agent.py, test_nessie_v2.py
+├── scripts/                try_coaching.py, eval_coaching.py, register_nessie_hook.py
+├── tests/                  test_core, test_agent, test_nessie_v2, test_followup, test_hooks
+├── apply_upgrades.py       one-time patcher used to add the upgrades (safe to re-run)
 ├── docs/                   images, sample case notes, brand, playbook, demo script
 ├── requirements.txt
 └── .env.example
@@ -241,22 +316,44 @@ scam-interrupt/
 
 ## Tests
 ```bash
-python -m tests.test_core        # full demo flow, offline
+python -m tests.test_core        # full demo flow, offline (incl. bill and watchlist reasons)
+python -m tests.test_followup    # adaptive follow-up, scam playbooks, teaching message
+python -m tests.test_hooks       # Nessie decision hooks: approve, decline, wait, signature
 python -m tests.test_agent       # Deep Agents wiring, guardrails, fast mode (fake agent)
 python -m tests.test_nessie_v2   # live mode against a simulated Nessie v2
-python -m scripts.try_coaching   # 5 coached + 5 calm answers through the real model
 ```
-The Coaching Detector scores **10/10** on our test set, with the rules fallback catching any answer the
-model misses.
+All 22 tests run offline, with no keys.
+
+## Evaluation
+```bash
+python -m scripts.eval_coaching      # writes docs/eval_results.md
+```
+On our own **30-answer test set** (20 clear answers, 10 vague answers with a second reply):
+
+| Metric | Result |
+|---|---|
+| Scams caught | **15 / 15** |
+| False alarms (ordinary payments sent to family) | **1 / 15** |
+| Overall accuracy | **29 / 30 (96%)** |
+| Follow-up asked | 5 of 15 scams, 7 of 15 ordinary payments |
+
+**Honest notes:** this is our own small test set, not real-world data; the run used the AI model with the rules
+safety net (Groq rate limits sent part of it to the rules); and the rules were developed against these same
+cases. We're adding answers written independently by a teammate for a fairer score. See
+[`docs/eval_results.md`](docs/eval_results.md) for every case.
 
 ## Demo script
 1. **Hook:** "Scammers coach older adults on exactly what to tell the bank."
-2. **Live scam:** a judge plays Mary, sends $3,000 to Ray at 11 PM, gets the safety check, and replies with
-   the scammer's script. The agent catches it.
-3. **Family loop:** David's phone gets the alert; he taps **Cancel**. Nothing reached the bank.
-4. **Impact:** the dashboard shows "$3,000 protected"; open **Case notes** and the LangSmith trace.
-5. **Accessibility:** switch to **High contrast** and press **A+**.
-6. **Close:** "Most tools tell you after the money is gone. Scam Interrupt asks before it leaves."
+2. **Live scam:** a judge plays Mary and sends $3,000 to Ray at 11 PM. Point at the reasons, including
+   *"not enough for rent."*
+3. **Follow-up:** the judge answers vaguely ("It's for my grandson") and gets a question they didn't expect.
+4. **Family loop:** David's phone reads "This looks like a grandparent emergency scam" with what to ask; he taps
+   **Cancel**. Mary gets a short explanation.
+5. **Network effect:** try $50 to Ray: flagged as "linked to 1 stopped scam."
+6. **Impact:** dashboard "$3,000 protected," **Case notes**, the LangSmith trace, and (hook mode) the declined
+   transaction in Nessie with our reason.
+7. **Accessibility:** switch to **High contrast** and press **A+**.
+8. **Close:** "Most tools tell you after the money is gone. Scam Interrupt asks before it leaves."
 
 ## Troubleshooting
 
@@ -270,6 +367,9 @@ model misses.
 | Agent calls a tool it doesn't have | Fixed with `write_todos` / `record_plan` tools and "only call tools you have been given" |
 | Phone replies don't match | Phone numbers are saved at seed time; they must match Photon's format exactly |
 | Nessie errors | Check `NESSIE_KEY` and `NESSIE_URL` (v2), or switch to `NESSIE_MODE=mock` |
+| Approve fails with "insufficient funds" | Re-run `python -m backend.seed` (tops Mary's checking up to $3,500) |
+| Decision hook never called | ngrok must be running and registered: re-run `scripts.register_nessie_hook` with the current URL |
+| Anything goes wrong with hooks | Set `NESSIE_HOLD=app` and restart; `git checkout demo-safe` returns to the last known-good version |
 
 ## Challenges and what we learned
 - **Nessie v2 changed:** the old API host was unreachable, and v2 uses Bearer tokens, cents, and
@@ -278,6 +378,10 @@ model misses.
   moved to Groq and kept a rules safety net.
 - **Agents are slow and rate-limited:** running deepagents inline took up to 2 minutes on a free tier. The
   fix was architectural: act instantly with the proven pipeline, and run the agent as a background reviewer.
+- **Nessie was richer than we expected:** its OpenAPI spec revealed bills, balances and decision hooks, which
+  let us explain risk in the customer's own terms and move the hold inside the bank.
+- **Scripts are the weakness of every fraud check:** coached victims answer scripted questions perfectly, so we
+  made the check adaptive, with one question built from the customer's own story.
 - **Making agent output trustworthy:** a dedicated `append_note` tool, duplicate checks, and prompts that
   quote stored signals turned messy notes into clean case files a bank could read.
 

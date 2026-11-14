@@ -44,3 +44,7 @@ He called from a new number and said not to tell his mom. Ray is his lawyer
 Signals: lawyer, new number, secrecy, secret, story does not fit a brand-new payee, story matches a grandparent emergency scam, story often used in scams (lawyer), urgency
 
 Verdict: coached
+
+## Outcome after customer_replied-review
+- Status: cancelled
+- Agent summary: (none)
