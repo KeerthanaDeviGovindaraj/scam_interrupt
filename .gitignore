@@ -4,3 +4,5 @@ __pycache__/
 data/*.db
 data/*.json
 .venv/
+node_modules/
+photon-bridge/.env
