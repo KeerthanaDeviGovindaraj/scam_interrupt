@@ -1,31 +1,41 @@
-"""Memory sub-agent: learns each customer's normal habits from Nessie history
-and from released transfers, so normal payments are never interrupted."""
+"""Memory sub-agent: learns each customer's normal habits from Nessie history and from released
+transfers, so normal payments are never interrupted. If Nessie history can't be listed, a baseline
+saved at seed time is used."""
 import json
 from statistics import mean
 
 from . import db
-from .nessie import get_nessie
+from .nessie import dollars, get_nessie
+
+
+def _payer(obj):
+    return str(obj.get("payer_id") or obj.get("from_account_id") or obj.get("account_id") or "")
 
 
 def rebuild_habits(customer_id: str) -> dict:
     cust = db.q1("SELECT * FROM customers WHERE id=?", (customer_id,))
     if not cust:
         raise ValueError(f"unknown customer {customer_id}")
-    n = get_nessie()
     acct = cust["nessie_account_id"]
-    purchases = n.list_purchases(acct) or []
-    transfers = n.list_transfers(acct) or []
-
+    n = get_nessie()
     payees, amounts = set(), []
-    for p in purchases:
-        payees.add(p.get("merchant_id"))
-        amounts.append(float(p.get("amount", 0)))
-    for t in transfers:
-        if t.get("payer_id", acct) == acct:
-            payees.add(t.get("payee_id"))
-            amounts.append(float(t.get("amount", 0)))
-    # transfers released through Scam Interrupt also count as normal
-    for t in db.q("SELECT payee_id, amount, hour FROM transfers WHERE customer_id=? AND status='released'", (customer_id,)):
+    try:
+        for p in n.list_purchases(acct) or []:
+            payees.add(str(p.get("merchant_id") or ""))
+            amounts.append(dollars(p))
+        for t in n.list_transfers(acct) or []:
+            if _payer(t) in ("", acct):
+                payees.add(str(t.get("payee_id") or ""))
+                amounts.append(dollars(t))
+    except Exception:  # noqa: BLE001 - history is optional
+        pass
+
+    base = db.kv_get(f"baseline:{customer_id}")
+    if base and (not amounts or len(amounts) < 3):
+        payees |= set(base["usual_payees"])
+        amounts += [base["avg_amount"]] * 5 + [base["max_amount"]]
+
+    for t in db.q("SELECT payee_id, amount FROM transfers WHERE customer_id=? AND status='released'", (customer_id,)):
         payees.add(t["payee_id"])
         amounts.append(float(t["amount"]))
     hours = sorted({t["hour"] for t in db.q("SELECT hour FROM transfers WHERE customer_id=? AND status='released'",

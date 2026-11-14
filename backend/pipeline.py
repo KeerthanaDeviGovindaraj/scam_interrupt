@@ -58,8 +58,9 @@ def release_transfer(transfer_id: int, note: str = "") -> dict:
         obj = n.create_purchase(acct, t["payee_id"], t["amount"], f"Scam Interrupt release #{transfer_id}")
     else:
         obj = n.create_transfer(acct, t["payee_id"], t["amount"], f"Scam Interrupt release #{transfer_id}")
-    _set(transfer_id, status="released", nessie_ref=obj.get("_id"), note=note)
-    return {"status": "released", "nessie_ref": obj.get("_id")}
+    ref = str(obj.get("id") or obj.get("_id") or "") if isinstance(obj, dict) else ""
+    _set(transfer_id, status="released", nessie_ref=ref or "submitted", note=note)
+    return {"status": "released", "nessie_ref": ref or "submitted"}
 
 
 def cancel_transfer(transfer_id: int, note: str = "") -> dict:

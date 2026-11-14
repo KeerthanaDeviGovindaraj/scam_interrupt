@@ -69,6 +69,10 @@ CREATE TABLE IF NOT EXISTS habits (
     active_hours TEXT DEFAULT '[]',
     updated_at TEXT
 );
+CREATE TABLE IF NOT EXISTS kv (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
 CREATE TABLE IF NOT EXISTS messages (     -- phone simulator + Photon log
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_id TEXT NOT NULL,             -- customers.id whose phone this is
@@ -135,3 +139,13 @@ def ex(sql, params=()):
     with connect() as c:
         cur = c.execute(sql, params)
         return cur.lastrowid
+
+
+def kv_set(key: str, value) -> None:
+    ex("INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+       (key, json.dumps(value)))
+
+
+def kv_get(key: str, default=None):
+    r = q1("SELECT value FROM kv WHERE key=?", (key,))
+    return json.loads(r["value"]) if r else default

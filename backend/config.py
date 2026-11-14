@@ -12,9 +12,9 @@ def env(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
 
 
-NESSIE_MODE = env("NESSIE_MODE", "mock").lower()          # mock | live
+NESSIE_MODE = env("NESSIE_MODE", "mock").lower()          # mock | live (Nessie v2)
 NESSIE_KEY = env("NESSIE_KEY")
-NESSIE_BASE = env("NESSIE_BASE", "http://api.nessieisreal.com").rstrip("/")
+NESSIE_BASE = (env("NESSIE_URL") or env("NESSIE_BASE") or "https://v2-prod-api.nessieisreal.com").rstrip("/")
 
 PHOTON_MODE = env("PHOTON_MODE", "sim").lower()            # sim | live
 PHOTON_API_KEY = env("PHOTON_API_KEY")

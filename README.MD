@@ -76,11 +76,13 @@ python -m tests.test_core            # or: pip install pytest && python -m pytes
 
 Do these in order; the app keeps working offline at every step.
 
-### 1. Capital One Nessie
-1. Get an API key at **v2.nessieisreal.com**.
-2. In `.env`: `NESSIE_MODE=live` and `NESSIE_KEY=<your key>`.
-3. Re-seed: `python -m backend.seed`.
-4. On the first live run, check the request fields in `backend/nessie.py` against the Nessie docs.
+### 1. Capital One Nessie (v2)
+1. Get a key at **v2.nessieisreal.com** (it starts with `sk_`).
+2. In `.env`: `NESSIE_MODE=live`, `NESSIE_KEY=<your key>`, `NESSIE_URL=https://v2-prod-api.nessieisreal.com`.
+3. Seed: `python -m backend.seed`. This calls Nessie's `POST /data/seed` (a ready-made demo bank) and labels
+   three of its accounts as Mary, David and the scammer Ray in our database.
+4. v2 details used: key sent as `Authorization: Bearer <key>`, amounts in **cents** (`amount_cents`), transfers
+   start as pending and settle on their own.
 
 ### 2. Photon 2.0 (required for the Photon prizes)
 1. Sign up at **photon.codes/beta** and read Photon's hackathon guidelines page.
