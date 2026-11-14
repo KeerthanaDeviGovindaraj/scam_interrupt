@@ -6,8 +6,8 @@
 - Trusted contact: David Lee (opted in)
 
 ## Recent transfers
+- #8 $3,000 to Ray Collins: awaiting_customer
 - #7 $3,000 to Ray Collins: cancelled
 - #6 $3,000 to Ray Collins: cancelled
 - #5 $3,000 to Ray Collins: cancelled
 - #4 $3,000 to Ray Collins: cancelled
-- #3 $3,000 to Ray Collins: awaiting_customer
