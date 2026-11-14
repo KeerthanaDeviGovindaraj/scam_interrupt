@@ -140,6 +140,22 @@ class LiveNessieV2:
         body = {"amount_cents": int(round(float(amount) * 100)), "merchant_id": merchant_id}
         return self._req("POST", f"/accounts/{account_id}/purchases", body)
 
+    # ----- decisions and webhooks (Nessie v2) -----
+    def decide(self, tx_id, decision, reason=""):
+        return self._req("POST", f"/transactions/{tx_id}/decision", {"decision": decision, "reason": (reason or "")[:200]})
+
+    def get_transaction(self, tx_id):
+        return self._req("GET", f"/transactions/{tx_id}")
+
+    def list_webhooks(self):
+        return _items(self._req("GET", "/webhooks"))
+
+    def create_webhook(self, body):
+        return self._req("POST", "/webhooks", body)
+
+    def delete_webhook(self, hook_id):
+        return self._req("DELETE", f"/webhooks/{hook_id}")
+
 
 class MockNessie:
     """Offline fake with the same interface. Data persists in a JSON file."""
@@ -221,6 +237,21 @@ class MockNessie:
 
     def list_bills(self, account_id):
         return [b for b in self._load().get("bills", []) if b["account_id"] == account_id]
+
+
+    def decide(self, tx_id, decision, reason=""):
+        d = self._load(); d.setdefault("decisions", []).append({"tx": tx_id, "decision": decision, "reason": reason})
+        self._save(d)
+        return {"id": tx_id, "decision": decision}
+
+    def list_webhooks(self):
+        return []
+
+    def create_webhook(self, body):
+        return {"id": "hook_mock", "secret": "mock_secret", **body}
+
+    def delete_webhook(self, hook_id):
+        return {}
 
 
 _client = None

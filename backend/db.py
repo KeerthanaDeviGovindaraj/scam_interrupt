@@ -101,9 +101,22 @@ def connect():
         conn.close()
 
 
+MIGRATIONS = [
+    "ALTER TABLE checks ADD COLUMN followup_question TEXT",
+    "ALTER TABLE checks ADD COLUMN followup_answer TEXT",
+    "ALTER TABLE checks ADD COLUMN scam_type TEXT",
+    "ALTER TABLE transfers ADD COLUMN scam_type TEXT",
+]
+
+
 def init_db():
     with connect() as c:
         c.executescript(SCHEMA)
+        for m in MIGRATIONS:
+            try:
+                c.execute(m)
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
 
 def reset_db():
