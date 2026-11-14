@@ -13,6 +13,11 @@
     <div class="stat"><b id="far">0%</b><span>Checks that were false alarms</span></div>
   </section>
 </div>
+<section class="panel" id="watchPanel" style="margin-bottom:20px; display:none">
+  <h2>Bank-wide watchlist</h2>
+  <p class="muted" style="margin-top:-6px">Payees linked to stopped scams. Any customer who tries to pay them gets an extra check.</p>
+  <ul class="feed" id="watch"></ul>
+</section>
 <section class="panel">
   <h2>All payments</h2>
   <div class="table-wrap"><table>
@@ -36,6 +41,10 @@ async function load() {
   protNote.textContent = d.scams_stopped ? `Kept in customers’ accounts across ${d.scams_stopped} stopped scam${d.scams_stopped > 1 ? "s" : ""}.` : "Every cancelled scam adds up here.";
   stopped.textContent = d.scams_stopped; smooth.textContent = d.sent_without_interruption;
   checks.textContent = d.safety_checks; far.textContent = Math.round(d.false_alarm_rate * 100) + "%";
+  const fp = d.flagged_payees || [];
+  watchPanel.style.display = fp.length ? "block" : "none";
+  watch.innerHTML = fp.map(p => `<li><div class="who">${esc(p.payee_name)}</div>
+    <div class="amt">${money(p.amount)}</div><div class="why">${p.stopped} stopped scam${p.stopped > 1 ? "s" : ""}</div></li>`).join("");
   rows.innerHTML = d.transfers.length ? d.transfers.map(t => {
     const fresh = last[t.id] && last[t.id] !== t.status; last[t.id] = t.status;
     return `<tr><td>${t.id}</td><td>${esc(t.customer_id === "mary" ? "Mary" : t.customer_id)}</td><td>${esc(t.payee_name)}</td>

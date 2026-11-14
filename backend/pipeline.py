@@ -35,11 +35,40 @@ def _set(transfer_id, **fields):
 
 
 # ---------- tools ----------
+def watchlist_hits(payee_id: str) -> int:
+    """How many transfers to this payee were cancelled as scams, across ALL customers (bank-wide)."""
+    r = db.q1("SELECT COUNT(*) AS n FROM transfers WHERE payee_id=? AND status='cancelled'", (payee_id,))
+    return int(r["n"]) if r else 0
+
+
+def risk_context(customer_id: str, payee_id: str) -> dict:
+    """Balance and bills from Capital One Nessie, plus the bank-wide payee watchlist."""
+    ctx = {"watchlist_hits": watchlist_hits(payee_id)}
+    cust = db.q1("SELECT nessie_account_id FROM customers WHERE id=?", (customer_id,))
+    if not cust:
+        return ctx
+    n = get_nessie()
+    try:
+        acct = n.get_account(cust["nessie_account_id"])
+        if acct:
+            ctx["available"] = (acct["available_cents"] / 100) if "available_cents" in acct else float(acct.get("balance", 0))
+    except Exception:  # noqa: BLE001 - context is optional; never block a payment check
+        pass
+    try:
+        ctx["bills"] = [{"payee": b.get("nickname") or b.get("payee"), "amount": float(b.get("payment_amount", 0)),
+                         "due": b.get("upcoming_payment_date") or b.get("payment_date")}
+                        for b in (n.list_bills(cust["nessie_account_id"]) or [])
+                        if b.get("status") in ("pending", "recurring")]
+    except Exception:  # noqa: BLE001
+        pass
+    return ctx
+
+
 def create_and_score(customer_id, payee_id, payee_name, payee_kind, amount, category="transfer", hour=None) -> dict:
     """Record a requested transfer (NOT sent to Nessie yet) and score its risk."""
     hour = datetime.now().hour if hour is None else int(hour)
     habits = memory.get_habits(customer_id)
-    r = risk.score(float(amount), payee_id, category, hour, habits)
+    r = risk.score(float(amount), payee_id, category, hour, habits, risk_context(customer_id, payee_id))
     tid = db.ex("""INSERT INTO transfers (customer_id,payee_id,payee_name,payee_kind,category,amount,hour,status,
                    risk_score,risk_level,reasons,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (customer_id, payee_id, payee_name, payee_kind, category, float(amount), hour, "scoring",
@@ -188,6 +217,11 @@ def on_customer_override(transfer_id: int) -> dict:
     return get_case(transfer_id)
 
 
+def flagged_payees() -> list:
+    return db.q("""SELECT payee_name, payee_id, COUNT(*) AS stopped, SUM(amount) AS amount FROM transfers
+                   WHERE status='cancelled' GROUP BY payee_id ORDER BY stopped DESC""")
+
+
 def dashboard() -> dict:
     rows = db.q("SELECT * FROM transfers ORDER BY id DESC")
     cancelled = [r for r in rows if r["status"] == "cancelled"]
@@ -201,4 +235,5 @@ def dashboard() -> dict:
         "safety_checks": len(checked),
         "false_alarm_rate": round(false_alarms / len(checked), 2) if checked else 0.0,
         "transfers": rows,
+        "flagged_payees": flagged_payees(),
     }

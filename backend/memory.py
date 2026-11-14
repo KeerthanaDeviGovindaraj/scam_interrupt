@@ -24,8 +24,13 @@ def rebuild_habits(customer_id: str) -> dict:
             payees.add(str(p.get("merchant_id") or ""))
             amounts.append(dollars(p))
         for t in n.list_transfers(acct) or []:
+            kind = t.get("kind")
+            if kind and kind not in ("transfer", "purchase", "bill_payment"):
+                continue                      # deposits, fees, interest are not spending habits
+            if str(t.get("status", "completed")) in ("declined", "cancelled"):
+                continue
             if _payer(t) in ("", acct):
-                payees.add(str(t.get("payee_id") or ""))
+                payees.add(str(t.get("payee_id") or t.get("merchant_id") or ""))
                 amounts.append(dollars(t))
     except Exception:  # noqa: BLE001 - history is optional
         pass

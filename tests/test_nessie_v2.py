@@ -29,14 +29,44 @@ ACCOUNTS = [
 ]
 
 
+STATE = {"customers": [{"id": "cus_1", "first_name": "Ann", "last_name": "Smith"},
+                       {"id": "cus_2", "first_name": "Bo", "last_name": "Smith"}],
+         "extra_accounts": [], "bills": [], "available": {"acc_mary_chk": 138000}}
+
+
 def fake_request(method, url, headers=None, json=None, timeout=None):
     assert headers["Authorization"] == "Bearer test"
-    path = url.split("nessieisreal.com", 1)[1]
+    path = url.split("nessieisreal.com", 1)[1].split("?")[0]
     CALLS.append((method, path, json))
     if method == "POST" and path == "/data/seed":
         return Resp(201, {"ok": True})
     if method == "GET" and path == "/accounts":
-        return Resp(200, {"data": ACCOUNTS})
+        return Resp(200, {"items": ACCOUNTS + STATE["extra_accounts"]})
+    if method == "GET" and path == "/customers":
+        return Resp(200, {"items": STATE["customers"]})
+    if method == "POST" and path == "/customers":
+        c = {"id": f"cus_{len(STATE['customers']) + 1}", **json}
+        STATE["customers"].append(c); return Resp(200, c)
+    if method == "GET" and path.startswith("/customers/") and path.endswith("/accounts"):
+        cid = path.split("/")[2]
+        return Resp(200, {"items": [a for a in ACCOUNTS + STATE["extra_accounts"] if a["customer_id"] == cid]})
+    if method == "POST" and path.startswith("/customers/") and path.endswith("/accounts"):
+        a = {"id": f"acc_new_{len(STATE['extra_accounts'])}", "customer_id": path.split("/")[2], **json}
+        STATE["extra_accounts"].append(a); return Resp(200, a)
+    if method == "GET" and path.startswith("/accounts/") and path.count("/") == 2:
+        aid = path.split("/")[2]
+        return Resp(200, {"id": aid, "available_cents": STATE["available"].get(aid, 0), "balance_cents": 0})
+    if method == "POST" and path.endswith("/deposits"):
+        aid = path.split("/")[2]
+        STATE["available"][aid] = STATE["available"].get(aid, 0) + json["amount_cents"]
+        return Resp(200, {"id": "txn_dep", "kind": "deposit"})
+    if method == "POST" and path.endswith("/settle"):
+        return Resp(200, {"id": path.split("/")[2], "status": "completed"})
+    if method == "GET" and path.endswith("/bills"):
+        return Resp(200, {"items": STATE["bills"]})
+    if method == "POST" and path.endswith("/bills"):
+        b = {"id": "bill_1", "account_id": path.split("/")[2], "upcoming_payment_date": "2026-12-01", **json}
+        STATE["bills"].append(b); return Resp(200, b)
     if method == "GET" and path == "/merchants":
         return Resp(200, [{"id": "m1", "name": "Corner Grocery"}, {"id": "m2", "name": "Gift Card Hub"}])
     if method == "POST" and path.endswith("/transfers"):
@@ -54,12 +84,16 @@ from backend.seed import seed  # noqa: E402
 def test_live_v2_flow():
     out = seed(reset=True)
     assert out["mode"] == "live" and out["mary_account"] == "acc_mary_chk"
-    assert out["david_account"] == "acc_other_chk" and out["ray_account"] == "acc_mary_sav"
+    assert out["david_account"] == "acc_other_chk"
+    assert out["ray_account"].startswith("acc_new_") and out["ray_customer"] not in ("cus_1", "cus_2")  # separate customer
+    assert STATE["available"]["acc_mary_chk"] == 350000                                               # topped up to $3,500
+    assert STATE["bills"] and STATE["bills"][0]["payee"] == "Princeton Rentals"
     ray = db.q1("SELECT nessie_account_id FROM customers WHERE id='ray'")["nessie_account_id"]
     case = pipeline.on_transfer_requested(customer_id="mary", payee_id=ray, payee_name="Ray Collins",
                                           payee_kind="account", amount=3000, hour=23)
     t = case["transfer"]
     assert t["risk_level"] == "high", t
+    assert any("not enough for Rent" in r for r in t["reasons"]), t["reasons"]
     pipeline.on_customer_reply(t["id"], "No one asked me. It's for school fees. Please hurry.")
     case = pipeline.on_family_decision(t["id"], "cancel")
     assert case["transfer"]["status"] == "cancelled" and not case["transfer"]["nessie_ref"]

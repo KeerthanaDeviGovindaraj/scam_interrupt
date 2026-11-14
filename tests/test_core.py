@@ -63,6 +63,22 @@ def test_calm_answer_releases_and_customer_keeps_final_say():
     assert case["transfer"]["status"] == "released"
 
 
+def test_bill_and_watchlist_reasons():
+    s, ray = _ids()
+    case = pipeline.on_transfer_requested(customer_id="mary", payee_id=ray, payee_name="Ray Collins",
+                                          payee_kind="account", amount=3000, hour=23)
+    t = case["transfer"]
+    assert any("not enough for Rent" in r for r in t["reasons"]), t["reasons"]
+    pipeline.on_customer_reply(t["id"], "No one asked me. It's for school fees. Please hurry.")
+    pipeline.on_family_decision(t["id"], "cancel")
+    # the same payee is now on the bank-wide watchlist, even for a small daytime amount
+    case = pipeline.on_transfer_requested(customer_id="mary", payee_id=ray, payee_name="Ray Collins",
+                                          payee_kind="account", amount=50, hour=14)
+    assert any("linked to 1 stopped scam" in r for r in case["transfer"]["reasons"]), case["transfer"]["reasons"]
+    assert case["transfer"]["risk_level"] == "high"
+    assert pipeline.dashboard()["flagged_payees"][0]["payee_name"] == "Ray Collins"
+
+
 def test_rules_detector():
     r = coaching.rule_detect("No one asked me. It's for school fees. Please hurry.", ["new payee"])
     assert r["coached"] and len(r["signals"]) >= 3
@@ -74,6 +90,8 @@ def test_risk_scorer():
     h = {"usual_payees": ["a"], "avg_amount": 200, "max_amount": 400}
     assert risk.score(3000, "x", "transfer", 23, h)["level"] == "high"
     assert risk.score(150, "a", "transfer", 14, h)["level"] == "low"
+    r = risk.score(3000, "x", "transfer", 14, h, {"available": 1380})
+    assert any("more than the available balance" in x for x in r["reasons"])
 
 
 if __name__ == "__main__":

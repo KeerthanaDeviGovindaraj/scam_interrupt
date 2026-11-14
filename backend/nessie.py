@@ -84,6 +84,45 @@ class LiveNessieV2:
                 return self._req("POST", f"/accounts/{account_id}/transfers", body)
             raise
 
+    # ----- customers, accounts, money in, bills (from the v2 OpenAPI spec) -----
+    ADDRESS = {"street_number": "1", "street_name": "Nassau St", "city": "Princeton", "state": "NJ", "zip": "08540"}
+
+    def find_customer(self, first, last):
+        for c in self._try_get("/customers?limit=100"):
+            if c.get("first_name") == first and c.get("last_name") == last:
+                return c
+        return None
+
+    def create_customer(self, first, last):
+        return self._req("POST", "/customers", {"first_name": first, "last_name": last, "address": self.ADDRESS})
+
+    def customer_accounts(self, customer_id):
+        return self._try_get(f"/customers/{customer_id}/accounts")
+
+    def create_account(self, customer_id, nickname, balance):
+        return self._req("POST", f"/customers/{customer_id}/accounts",
+                         {"type": "Checking", "nickname": nickname[:40], "balance_cents": int(round(float(balance) * 100))})
+
+    def get_account(self, account_id):
+        return self._req("GET", f"/accounts/{account_id}")
+
+    def deposit(self, account_id, amount, description="Deposit"):
+        tx = self._req("POST", f"/accounts/{account_id}/deposits",
+                       {"amount_cents": int(round(float(amount) * 100)), "description": description})
+        try:
+            self._req("POST", f"/transactions/{oid(tx)}/settle")   # skip the pending window for the demo
+        except NessieError:
+            pass
+        return tx
+
+    def list_bills(self, account_id):
+        return self._try_get(f"/accounts/{account_id}/bills")
+
+    def create_bill(self, account_id, payee, amount, nickname="", recurring_date=1):
+        return self._req("POST", f"/accounts/{account_id}/bills",
+                         {"status": "recurring", "payee": payee, "nickname": nickname or payee,
+                          "payment_amount": float(amount), "recurring_date": int(recurring_date)})
+
     # ----- best effort (check the docs; these fall back safely) -----
     def list_customers(self):
         return self._try_get("/customers")
@@ -92,10 +131,10 @@ class LiveNessieV2:
         return self._try_get("/merchants")
 
     def list_transfers(self, account_id):
-        return self._try_get(f"/accounts/{account_id}/transfers", f"/accounts/{account_id}/transactions")
+        return self._try_get(f"/accounts/{account_id}/transactions")
 
     def list_purchases(self, account_id):
-        return self._try_get(f"/accounts/{account_id}/purchases")
+        return []   # v2 has no purchase list; purchases appear in /accounts/{id}/transactions
 
     def create_purchase(self, account_id, merchant_id, amount, description="", purchase_date=None):
         body = {"amount_cents": int(round(float(amount) * 100)), "merchant_id": merchant_id}
@@ -109,7 +148,7 @@ class MockNessie:
         self.path = path
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         if not os.path.exists(path):
-            self._save({"customers": {}, "accounts": {}, "merchants": {}, "purchases": [], "transfers": []})
+            self._save({"customers": {}, "accounts": {}, "merchants": {}, "purchases": [], "transfers": [], "bills": []})
 
     def _load(self):
         with open(self.path) as f:
@@ -153,6 +192,35 @@ class MockNessie:
 
     def list_transfers(self, account_id):
         return [t for t in self._load()["transfers"] if t["payer_id"] == account_id]
+
+    def mark_history(self):
+        """Everything created so far is past history, already reflected in the opening balance."""
+        d = self._load()
+        for t in d["purchases"] + d["transfers"]:
+            t["history"] = True
+        self._save(d)
+
+    def get_account(self, account_id):
+        d = self._load()
+        a = d["accounts"].get(account_id)
+        if not a:
+            return None
+        spent = sum(float(t["amount"]) for t in d["purchases"] + d["transfers"]
+                    if t["payer_id"] == account_id and not t.get("history"))
+        avail = float(a["balance"]) - spent
+        return {"id": account_id, "available_cents": int(round(avail * 100)), "balance_cents": int(round(avail * 100))}
+
+    def deposit(self, account_id, amount, description="Deposit"):
+        d = self._load(); d["accounts"][account_id]["balance"] = float(d["accounts"][account_id]["balance"]) + float(amount)
+        self._save(d)
+
+    def create_bill(self, account_id, payee, amount, nickname="", recurring_date=1, due=None):
+        return self._new("bills", {"account_id": account_id, "payee": payee, "nickname": nickname or payee,
+                                   "payment_amount": float(amount), "status": "recurring",
+                                   "upcoming_payment_date": due or ""})
+
+    def list_bills(self, account_id):
+        return [b for b in self._load().get("bills", []) if b["account_id"] == account_id]
 
 
 _client = None
