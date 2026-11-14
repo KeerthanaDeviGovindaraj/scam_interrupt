@@ -44,12 +44,14 @@ risk-analyst (for transfer_scored) or coaching-detector (for customer_replied) t
 call append_note(transfer_id, "Agent review", ...) saying whether you agree with what the app did and why.
 To add to the case notes, ALWAYS use append_note; never write or edit the notes file directly.
 
+Sub-agents write their own notes: never re-append what a sub-agent returned.
 Rules: only call tools you have been given. Never release a transfer that is waiting for a family decision. The customer always keeps the final
 say; you only add a pause and a second voice. Finish with one short sentence describing what you did."""
 
 RISK_ANALYST_PROMPT = """You are the risk analyst. You receive a transfer_id.
 Call get_case, read /customers/<customer_id>/profile.md, and explain in 2-4 plain sentences why this
 transfer looks risky compared with the customer's normal habits (payee, amount vs usual, time, merchant).
+If the case has a safety check, quote its stored signals exactly; do not guess what the customer said.
 Call append_note(transfer_id, "Risk analysis", your explanation). Never edit the notes file directly.
 Return the explanation.
 Only call tools you have been given."""
@@ -138,8 +140,17 @@ def append_note(transfer_id: int, section: str, text: str) -> str:
     """Add a section to the END of the case notes. Use this for every note you write."""
     ensure_notes(int(transfer_id))
     title = str(section).strip().lstrip("#").strip() or "Note"
+    lines = str(text).strip().splitlines()
+    while lines and lines[0].strip().lstrip("#").strip().lower() in (title.lower(), ""):
+        lines.pop(0)                      # drop a repeated heading the model put in the text
+    body = "\n".join(lines).strip()
+    if not body:
+        return "note skipped (empty)"
+    current = read_notes(int(transfer_id))
+    if body in current:
+        return "note already present"     # sub-agent already wrote it
     with open(notes_path(int(transfer_id)), "a") as f:
-        f.write(f"\n## {title}\n{str(text).strip()}\n")
+        f.write(f"\n## {title}\n{body}\n")
     return "note added"
 
 
