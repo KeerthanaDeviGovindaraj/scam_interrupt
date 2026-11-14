@@ -245,7 +245,7 @@ def get_agent():
             raise RuntimeError("AGENT_MODE=deepagents needs MODEL set in .env")
         from deepagents import create_deep_agent
         from langchain.chat_models import init_chat_model
-        model = init_chat_model(config.MODEL, temperature=0, timeout=60, max_retries=6)
+        model = init_chat_model(config.AGENT_MODEL, temperature=0, timeout=60, max_retries=6)
         kwargs = dict(model=model, tools=MAIN_TOOLS, system_prompt=PLANNER_PROMPT, subagents=SUBAGENTS)
         backend = _backend()
         if backend is not None:

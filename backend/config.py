@@ -19,7 +19,8 @@ NESSIE_BASE = (env("NESSIE_URL") or env("NESSIE_BASE") or "https://v2-prod-api.n
 PHOTON_MODE = env("PHOTON_MODE", "sim").lower()            # sim | live
 PHOTON_API_KEY = env("PHOTON_API_KEY")
 
-MODEL = env("MODEL")                                       # empty = rule-based
+MODEL = env("MODEL")
+AGENT_MODEL = env("AGENT_MODEL") or MODEL   # model for the deepagents planner                                       # empty = rule-based
 AGENT_MODE = env("AGENT_MODE", "pipeline").lower()          # pipeline | deepagents
 # true = app acts instantly; the deepagents planner reviews and documents in the background
 AGENT_BACKGROUND = env("AGENT_BACKGROUND", "true").lower() in ("1", "true", "yes")
