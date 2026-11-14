@@ -58,8 +58,9 @@ def release_transfer(transfer_id: int, note: str = "") -> dict:
         obj = n.create_purchase(acct, t["payee_id"], t["amount"], f"Scam Interrupt release #{transfer_id}")
     else:
         obj = n.create_transfer(acct, t["payee_id"], t["amount"], f"Scam Interrupt release #{transfer_id}")
-    _set(transfer_id, status="released", nessie_ref=obj.get("_id"), note=note)
-    return {"status": "released", "nessie_ref": obj.get("_id")}
+    ref = str(obj.get("id") or obj.get("_id") or "") if isinstance(obj, dict) else ""
+    _set(transfer_id, status="released", nessie_ref=ref or "submitted", note=note)
+    return {"status": "released", "nessie_ref": ref or "submitted"}
 
 
 def cancel_transfer(transfer_id: int, note: str = "") -> dict:
@@ -93,8 +94,9 @@ def analyze_reply(transfer_id: int, answer: str) -> dict:
     return result
 
 
-def alert_family(transfer_id: int) -> dict:
-    """Message the opted-in trusted contact with Approve / Cancel."""
+def alert_family(transfer_id: int, message: str = "") -> dict:
+    """Message the opted-in trusted contact with Approve / Cancel.
+    `message` lets the family-messenger sub-agent supply calmer wording; key facts are always appended."""
     case = get_case(transfer_id)
     t, cust, chk = case["transfer"], case["customer"], case["check"]
     if not (cust["trusted_contact_id"] and cust["family_opt_in"]):
@@ -104,9 +106,12 @@ def alert_family(transfer_id: int) -> dict:
         return {"status": "held_review"}
     first = cust["name"].split()[0]
     signals = "; ".join(chk["signals"]) if chk and chk["signals"] else ", ".join(t["reasons"])
-    text = (f"Scam Interrupt alert: {first} is trying to send ${t['amount']:,.0f} to {t['payee_name']}, "
-            f"a new payee, at {t['hour']}:00. Warning signs: {signals}. "
-            f"Please call {first} now, then choose Approve or Cancel.")
+    facts = (f"{first} is trying to send ${t['amount']:,.0f} to {t['payee_name']} at {t['hour']}:00. "
+             f"Warning signs: {signals}.")
+    if message and message.strip():
+        text = f"Scam Interrupt alert: {message.strip()[:400]}\n\n{facts} Please call {first}, then choose Approve or Cancel."
+    else:
+        text = f"Scam Interrupt alert: {facts} Please call {first} now, then choose Approve or Cancel."
     db.ex("INSERT INTO alerts (transfer_id,contact_id,message,created_at) VALUES (?,?,?,?)",
           (transfer_id, cust["trusted_contact_id"], text, db.now()))
     _set(transfer_id, status="awaiting_family")

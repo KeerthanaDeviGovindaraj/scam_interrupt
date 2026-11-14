@@ -1,12 +1,13 @@
 """Capital One Nessie client.
 
-live mode talks to the real API (get a key at v2.nessieisreal.com).
-mock mode is an offline stand-in with the same methods, so you can build
-before your key works and keep demoing if Wi-Fi drops.
-
-VERIFY field names against the Nessie docs before relying on live mode.
+live -> Nessie v2 (https://v2-prod-api.nessieisreal.com), key sent as a Bearer token,
+        amounts in cents. Confirmed endpoints: POST /data/seed, GET /accounts,
+        POST /accounts/{id}/transfers {"amount_cents", "payee_id"}.
+        Everything else is tried carefully and falls back if the endpoint differs.
+mock -> offline stand-in with the same methods (no key, no Wi-Fi needed).
 """
 import json
+import logging
 import os
 import uuid
 from datetime import date
@@ -15,63 +16,90 @@ import requests
 
 from . import config
 
-ADDRESS = {"street_number": "1", "street_name": "Nassau St", "city": "Princeton",
-           "state": "NJ", "zip": "08540"}
+log = logging.getLogger("nessie")
 
 
 class NessieError(RuntimeError):
     pass
 
 
-class LiveNessie:
+def _items(data):
+    """Accept a plain list or common wrappers like {"data": [...]}."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for k in ("data", "items", "results", "accounts", "customers", "merchants", "transactions", "transfers"):
+            if isinstance(data.get(k), list):
+                return data[k]
+    return []
+
+
+def oid(obj) -> str:
+    return str(obj.get("id") or obj.get("_id") or "")
+
+
+def dollars(obj) -> float:
+    if obj.get("amount_cents") is not None:
+        return int(obj["amount_cents"]) / 100
+    return float(obj.get("amount", 0))
+
+
+class LiveNessieV2:
     def __init__(self, key: str, base: str):
         if not key:
             raise NessieError("NESSIE_KEY is empty. Set it in .env or use NESSIE_MODE=mock.")
-        self.key, self.base = key, base
+        self.base = base
+        self.headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
 
-    def _url(self, path):
-        return f"{self.base}{path}?key={self.key}"
-
-    def _post(self, path, body):
-        r = requests.post(self._url(path), json=body, timeout=15)
+    def _req(self, method, path, body=None):
+        r = requests.request(method, f"{self.base}{path}", headers=self.headers, json=body, timeout=20)
         if r.status_code >= 400:
-            raise NessieError(f"POST {path} -> {r.status_code}: {r.text[:300]}")
-        data = r.json()
-        return data.get("objectCreated", data)
+            raise NessieError(f"{method} {path} -> {r.status_code}: {r.text[:300]}")
+        return r.json() if r.text.strip() else {}
 
-    def _get(self, path):
-        r = requests.get(self._url(path), timeout=15)
-        if r.status_code >= 400:
-            raise NessieError(f"GET {path} -> {r.status_code}: {r.text[:300]}")
-        return r.json()
+    def _try_get(self, *paths):
+        for p in paths:
+            try:
+                return _items(self._req("GET", p))
+            except NessieError as e:
+                log.info("Nessie: %s", e)
+        return []
 
-    def create_customer(self, first, last):
-        return self._post("/customers", {"first_name": first, "last_name": last, "address": ADDRESS})
+    # ----- confirmed -----
+    def seed_demo_bank(self):
+        return self._req("POST", "/data/seed")
 
-    def create_account(self, customer_id, nickname, balance):
-        return self._post(f"/customers/{customer_id}/accounts",
-                          {"type": "Checking", "nickname": nickname, "rewards": 0, "balance": balance})
-
-    def create_merchant(self, name, category):
-        return self._post("/merchants", {"name": name, "category": category, "address": ADDRESS,
-                                         "geocode": {"lat": 40.35, "lng": -74.66}})
-
-    def create_purchase(self, account_id, merchant_id, amount, description="", purchase_date=None):
-        return self._post(f"/accounts/{account_id}/purchases",
-                          {"merchant_id": merchant_id, "medium": "balance", "amount": amount,
-                           "purchase_date": purchase_date or date.today().isoformat(),
-                           "description": description})
+    def list_accounts(self):
+        return _items(self._req("GET", "/accounts"))
 
     def create_transfer(self, account_id, payee_account_id, amount, description=""):
-        return self._post(f"/accounts/{account_id}/transfers",
-                          {"medium": "balance", "payee_id": payee_account_id, "amount": amount,
-                           "transaction_date": date.today().isoformat(), "description": description})
+        body = {"amount_cents": int(round(float(amount) * 100)), "payee_id": payee_account_id}
+        if description:
+            body["description"] = description
+        try:
+            return self._req("POST", f"/accounts/{account_id}/transfers", body)
+        except NessieError:
+            if "description" in body:      # in case v2 rejects unknown fields
+                body.pop("description")
+                return self._req("POST", f"/accounts/{account_id}/transfers", body)
+            raise
 
-    def list_purchases(self, account_id):
-        return self._get(f"/accounts/{account_id}/purchases")
+    # ----- best effort (check the docs; these fall back safely) -----
+    def list_customers(self):
+        return self._try_get("/customers")
+
+    def list_merchants(self):
+        return self._try_get("/merchants")
 
     def list_transfers(self, account_id):
-        return self._get(f"/accounts/{account_id}/transfers")
+        return self._try_get(f"/accounts/{account_id}/transfers", f"/accounts/{account_id}/transactions")
+
+    def list_purchases(self, account_id):
+        return self._try_get(f"/accounts/{account_id}/purchases")
+
+    def create_purchase(self, account_id, merchant_id, amount, description="", purchase_date=None):
+        body = {"amount_cents": int(round(float(amount) * 100)), "merchant_id": merchant_id}
+        return self._req("POST", f"/accounts/{account_id}/purchases", body)
 
 
 class MockNessie:
@@ -134,7 +162,7 @@ def get_nessie():
     global _client
     if _client is None:
         if config.NESSIE_MODE == "live":
-            _client = LiveNessie(config.NESSIE_KEY, config.NESSIE_BASE)
+            _client = LiveNessieV2(config.NESSIE_KEY, config.NESSIE_BASE)
         else:
             _client = MockNessie(config.MOCK_NESSIE_PATH)
     return _client
