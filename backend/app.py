@@ -168,4 +168,10 @@ async def photon_webhook(request: Request):
     return {"ignored": True}
 
 
+@app.get("/api/cases/{transfer_id}/notes")
+def case_notes(transfer_id: int):
+    from . import agent
+    return {"transfer_id": transfer_id, "notes": agent.read_notes(transfer_id)}
+
+
 app.mount("/web", StaticFiles(directory="web", html=True), name="web")

@@ -1,16 +1,37 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Scam Interrupt</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Scam Interrupt</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"></head>
 <body><script src="nav.js"></script><main>
-<div class="card"><h1>Scam Interrupt</h1>
-<p>Most tools tell you after the money is gone. Scam Interrupt asks before it leaves.</p>
-<p class="muted" id="health">Checking server…</p>
-<button onclick="reset()">Reset and seed demo data</button> <span class="muted" id="msg"></span></div>
-<div class="card"><h2>Demo in 3 screens</h2><ol>
-<li><a href="bank.html">Mary's bank app</a>: send $3,000 to Ray Collins at 11 PM.</li>
-<li><a href="phones.html">Phones</a>: Mary answers the safety check; David taps Cancel.</li>
-<li><a href="dashboard.html">Bank dashboard</a>: "$3,000 protected."</li></ol></div>
+<section class="hero">
+  <div>
+    <h1>Most tools tell you after the money is gone. Scam Interrupt asks before it leaves.</h1>
+    <p class="lede">When a payment looks unusual, we pause it, check in with the customer in plain words, notice when a scammer is coaching them, and bring in a trusted family member before anything moves.</p>
+    <button class="btn" id="resetBtn" onclick="reset()">Start a fresh demo</button>
+    <p class="muted" id="msg"></p>
+  </div>
+  <div class="convo" aria-label="Example safety check">
+    <div class="who">Mary’s bank</div>
+    <div class="msg bank">Before we send $3,000 to Ray Collins: did someone contact you and ask you to send this?</div>
+    <div class="who" style="text-align:right">Mary</div>
+    <div class="msg me">No one asked me. It’s for school fees. Please hurry.</div>
+    <div class="who">Mary’s bank</div>
+    <div class="msg bank">Thanks, Mary. We’ve paused this payment and let David know, just to be safe. Nothing has been sent.</div>
+    <span class="stamp cancelled">Cancelled: nothing was sent</span>
+  </div>
+</section>
+<ol class="steps">
+  <li><a href="bank.html">Mary’s bank</a><p>Mary sends $3,000 to someone new at 11 PM.</p></li>
+  <li><a href="phones.html">Phones</a><p>Mary answers the safety check. David, her trusted contact, decides.</p></li>
+  <li><a href="dashboard.html">Bank dashboard</a><p>The bank sees the money protected and the agent’s case notes.</p></li>
+</ol>
 </main><script>
-api("/api/health").then(h => health.textContent =
-  `Nessie: ${h.nessie_mode} · Photon: ${h.photon_mode} · Agent: ${h.agent_mode} · Model: ${h.model}`);
-async function reset(){ msg.textContent="Seeding…"; await api("/api/demo/reset",{method:"POST"}); msg.textContent="Done."; }
+async function reset() {
+  const h = await api("/api/health").catch(() => ({}));
+  const warn = h.nessie_mode === "live" ? "This wipes the demo and creates a new demo bank in Nessie. Continue?"
+                                        : "This wipes the demo and sets up Mary, David and Ray again. Continue?";
+  if (!confirm(warn)) return;
+  resetBtn.disabled = true; msg.textContent = "Setting up…";
+  try { await api("/api/demo/reset", { method: "POST" }); msg.textContent = "Ready. Open Mary’s bank."; }
+  catch (e) { msg.textContent = "Couldn’t reset: " + e.message; }
+  resetBtn.disabled = false;
+}
 </script></body></html>
