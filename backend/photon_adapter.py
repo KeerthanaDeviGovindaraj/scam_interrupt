@@ -1,18 +1,14 @@
-"""Photon 2.0 adapter. THIS IS THE ONE FILE TO FINISH WITH PHOTON'S DOCS.
+"""Photon 2.0 adapter.
 
-Required for the Photon tracks: messages must really go through Photon 2.0
-(photon.codes/beta). A substitute like Twilio makes you ineligible.
-
-Steps (from the playbook):
- 1. Read Photon's hackathon guidelines page (link in the hacker packet).
- 2. Fill in send_text() and send_choices() with their SDK or API.
- 3. Find out how replies reach you. If Photon calls a webhook, point it at
-    POST /webhooks/photon on a public URL (deployed server or a tunnel such as ngrok).
-    Then map their payload in app.py -> photon_webhook() to {"from": phone, "text": text}.
- 4. Voice: if Photon supports voice calls, add start_voice_check(); otherwise
-    keep the text safety check (playbook fallback).
+Messages really go through Photon 2.0 (required for the Photon tracks). The
+TypeScript bridge in photon-bridge/ (spectrum-ts, iMessage) does the sending;
+this file just asks the bridge to send.
 """
-from . import config
+import os
+
+import requests
+
+BRIDGE_URL = os.environ.get("PHOTON_BRIDGE_URL", "http://127.0.0.1:8787").rstrip("/")
 
 
 class PhotonNotConfigured(RuntimeError):
@@ -20,13 +16,14 @@ class PhotonNotConfigured(RuntimeError):
 
 
 def send_text(phone: str, text: str) -> None:
-    if not config.PHOTON_API_KEY:
-        raise PhotonNotConfigured("Set PHOTON_API_KEY and implement send_text() per Photon's docs.")
-    # TODO: call Photon 2.0 here, e.g. photon_client.send(to=phone, text=text)
-    raise PhotonNotConfigured("send_text() not implemented yet")
+    try:
+        r = requests.post(f"{BRIDGE_URL}/send", json={"to": phone, "text": text}, timeout=15)
+    except requests.RequestException as e:
+        raise PhotonNotConfigured(f"Photon bridge not reachable at {BRIDGE_URL}: {e}") from e
+    if r.status_code != 200:
+        raise PhotonNotConfigured(f"Photon bridge error {r.status_code}: {r.text[:200]}")
 
 
 def send_choices(phone: str, text: str, options: list[str]) -> None:
-    """Approve/Cancel for the family alert. If Photon supports buttons or an
-    interactive card, use it; otherwise send text and ask them to reply with a word."""
+    """Approve/Cancel for the family alert, as reply words (handled in app.py's webhook)."""
     send_text(phone, text + "\n\nReply " + " or ".join(o.upper() for o in options) + ".")
