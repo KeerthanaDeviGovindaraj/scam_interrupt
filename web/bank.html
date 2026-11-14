@@ -1,0 +1,36 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Mary's bank</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"></head>
+<body><script src="nav.js"></script><main>
+<div class="card"><h1>Send money</h1><p class="muted">Signed in as Mary Lee</p>
+<label>Pay to</label><select id="payee"></select>
+<div class="row"><div><label>Amount ($)</label><input id="amount" type="number" value="3000"></div>
+<div><label>Time (demo)</label><select id="hour"><option value="">Now</option><option value="23" selected>11 PM</option>
+<option value="14">2 PM</option></select></div></div><br>
+<button onclick="send()">Send</button> <span id="result" class="muted"></span></div>
+<div class="card"><h2>Recent payments</h2><table><thead><tr><th>#</th><th>To</th><th>Amount</th><th>Status</th><th>Why</th><th></th></tr></thead>
+<tbody id="rows"></tbody></table></div>
+</main><script>
+async function load(){
+  const ps = await api("/api/payees?customer_id=mary");
+  payee.innerHTML = ps.map(p=>`<option value="${p.id}">${p.name}${p.kind==="merchant"?" ("+p.category+")":""}</option>`).join("");
+  const ray = ps.find(p=>p.name.startsWith("Ray")); if (ray) payee.value = ray.id;
+  refresh();
+}
+async function refresh(){
+  const ts = (await api("/api/transfers")).filter(t=>t.customer_id==="mary");
+  rows.innerHTML = ts.map(t=>`<tr><td>${t.id}</td><td>${t.payee_name}</td><td>${money(t.amount)}</td><td>${pill(t.status)}</td>
+   <td class="reasons">${(t.reasons||[]).join(", ")}</td>
+   <td>${["cancelled","awaiting_family","held_review"].includes(t.status)?`<button class="secondary" onclick="override(${t.id})">Send anyway</button>`:""}</td></tr>`).join("");
+}
+async function send(){
+  result.textContent="Sending…";
+  const body={customer_id:"mary",payee_id:payee.value,amount:Number(amount.value)};
+  if (hour.value!=="") body.hour=Number(hour.value);
+  const c = await api("/api/transfers",{method:"POST",body:JSON.stringify(body)});
+  result.innerHTML = c.transfer.status==="released" ? "Sent." :
+    "Paused for a quick safety check. Check your messages.";
+  refresh();
+}
+async function override(id){ if(confirm("Send this payment anyway? It's your decision.")){ await api(`/api/cases/${id}/override`,{method:"POST"}); refresh(); } }
+load(); setInterval(refresh, 2500);
+</script></body></html>

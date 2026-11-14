@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Scam Interrupt</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"></head>
+<body><script src="nav.js"></script><main>
+<div class="card"><h1>Scam Interrupt</h1>
+<p>Most tools tell you after the money is gone. Scam Interrupt asks before it leaves.</p>
+<p class="muted" id="health">Checking server…</p>
+<button onclick="reset()">Reset and seed demo data</button> <span class="muted" id="msg"></span></div>
+<div class="card"><h2>Demo in 3 screens</h2><ol>
+<li><a href="bank.html">Mary's bank app</a>: send $3,000 to Ray Collins at 11 PM.</li>
+<li><a href="phones.html">Phones</a>: Mary answers the safety check; David taps Cancel.</li>
+<li><a href="dashboard.html">Bank dashboard</a>: "$3,000 protected."</li></ol></div>
+</main><script>
+api("/api/health").then(h => health.textContent =
+  `Nessie: ${h.nessie_mode} · Photon: ${h.photon_mode} · Agent: ${h.agent_mode} · Model: ${h.model}`);
+async function reset(){ msg.textContent="Seeding…"; await api("/api/demo/reset",{method:"POST"}); msg.textContent="Done."; }
+</script></body></html>
