@@ -5,6 +5,7 @@ python-dotenv>=1.0
 # Agent + LLM (optional: the app runs in rule-based mode without them)
 deepagents
 langchain>=0.3
+langchain-groq
 # Add the provider package for the model you choose, for example:
 # langchain-anthropic   (MODEL=anthropic:claude-sonnet-4-5)
 # langchain-aws         (MODEL=bedrock_converse:<model-id>)

@@ -21,6 +21,8 @@ PHOTON_API_KEY = env("PHOTON_API_KEY")
 
 MODEL = env("MODEL")                                       # empty = rule-based
 AGENT_MODE = env("AGENT_MODE", "pipeline").lower()          # pipeline | deepagents
+# true = app acts instantly; the deepagents planner reviews and documents in the background
+AGENT_BACKGROUND = env("AGENT_BACKGROUND", "true").lower() in ("1", "true", "yes")
 
 MARY_PHONE = env("MARY_PHONE", "+15550000001")
 DAVID_PHONE = env("DAVID_PHONE", "+15550000002")
