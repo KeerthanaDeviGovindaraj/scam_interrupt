@@ -59,7 +59,7 @@ def seed_mock():
         _add_person(local_id, f"{first} {last}", phone, role, cust["_id"], acct["_id"])
         return acct["_id"]
 
-    mary = person("mary", "Mary", "Lee", "customer", config.MARY_PHONE, 8200)
+    mary = person("mary", "Mary", "Lee", "customer", config.MARY_PHONE, 3500)
     david = person("david", "David", "Lee", "family", config.DAVID_PHONE, 1500)
     person("ray", "Ray", "Collins", "payee", None, 50)
     merchants = {}
@@ -77,6 +77,8 @@ def seed_mock():
     n.create_purchase(mary, merchants["utility"], 182.40, "electric bill", (today - timedelta(days=12)).isoformat())
     n.create_transfer(mary, david, 100, "birthday gift")
     n.create_transfer(mary, david, 150, "books")
+    n.mark_history()
+    n.create_bill(mary, "Princeton Rentals", 1200, "Rent", 1, (today + timedelta(days=5)).isoformat())
     habits = _finish()
     return {"mode": "mock", "mary_account": mary, "david_account": david, "merchants": merchants, "habits": habits}
 
@@ -92,22 +94,35 @@ def _is_card(a):
 
 def seed_live():
     n = get_nessie()
-    n.seed_demo_bank()
+    n.seed_demo_bank()                      # safe to call again: does nothing if data exists
     accounts = [a for a in n.list_accounts() if not _is_card(a)]
-    if len(accounts) < 3:
-        raise RuntimeError(f"Need at least 3 non-credit accounts from /data/seed, got {len(accounts)}. "
-                           "Run the seed again or check GET /accounts.")
     checking = [a for a in accounts if "check" in str(a.get("type") or a.get("nickname") or "").lower()]
     mary = checking[0] if checking else accounts[0]
-    others = [a for a in accounts if oid(a) != oid(mary)]
-    # David: prefer a different customer's account; Ray: any remaining account
-    diff_owner = [a for a in others if _owner(a) and _owner(a) != _owner(mary)]
-    david = diff_owner[0] if diff_owner else others[0]
-    ray = next(a for a in others if oid(a) != oid(david))
+    others = [a for a in checking if _owner(a) != _owner(mary)] or [a for a in accounts if oid(a) != oid(mary)]
+    david = others[0]
+
+    # Ray: a SEPARATE customer with his own account (never one of Mary's)
+    ray_cust = n.find_customer("Ray", "Collins") or n.create_customer("Ray", "Collins")
+    ray_accts = [a for a in n.customer_accounts(oid(ray_cust)) if not _is_card(a)]
+    ray = ray_accts[0] if ray_accts else n.create_account(oid(ray_cust), "Ray Collins Checking", 25)
 
     _add_person("mary", "Mary Lee", config.MARY_PHONE, "customer", _owner(mary), oid(mary))
     _add_person("david", "David Lee", config.DAVID_PHONE, "family", _owner(david), oid(david))
-    _add_person("ray", "Ray Collins", None, "payee", _owner(ray), oid(ray))
+    _add_person("ray", "Ray Collins", None, "payee", oid(ray_cust), oid(ray))
+
+    # Mary can afford the $3,000 (so Approve works), but it would leave too little for rent
+    try:
+        acct = n.get_account(oid(mary))
+        avail = acct["available_cents"] / 100
+        if avail < 3500:
+            n.deposit(oid(mary), round(3500 - avail, 2), "PAYROLL DEPOSIT")
+    except Exception as e:  # noqa: BLE001
+        print("warning: top-up failed:", e)
+    try:
+        if not [b for b in n.list_bills(oid(mary)) if b.get("status") in ("pending", "recurring")]:
+            n.create_bill(oid(mary), "Princeton Rentals", 1200, "Rent", 1)
+    except Exception as e:  # noqa: BLE001
+        print("warning: bill setup failed:", e)
 
     merchants = {}
     for m in n.list_merchants():
@@ -117,19 +132,18 @@ def seed_live():
                   (oid(m), str(m.get("name") or "Merchant"), cat))
             merchants.setdefault(cat, oid(m))
 
-    # Normal history: two small gifts to David (real Nessie transfers, pending -> settle on their own)
+    # Normal history: small gifts to David (real Nessie transfers, pending -> settle on their own)
     for amt in (100, 150):
         try:
             n.create_transfer(oid(mary), oid(david), amt, "gift")
         except Exception as e:  # noqa: BLE001
             print("warning: history transfer failed:", e)
 
-    # Baseline habits, used if Nessie history listing isn't available yet
     usual = [oid(david)] + list(merchants.values())
     db.kv_set("baseline:mary", {"usual_payees": usual, "avg_amount": 95.0, "max_amount": 182.4})
     habits = _finish()
     return {"mode": "live", "mary_account": oid(mary), "david_account": oid(david), "ray_account": oid(ray),
-            "merchants": merchants, "habits": habits}
+            "ray_customer": oid(ray_cust), "merchants": merchants, "habits": habits}
 
 
 def seed(reset: bool = True):
