@@ -10,7 +10,7 @@ import re
 from . import config
 
 URGENCY = ["hurry", "urgent", "right now", "right away", "asap", "quickly", "immediately", "today", "please just"]
-SECRECY = ["don't tell", "dont tell", "do not tell", "secret", "keep this", "between us", "nobody needs to know"]
+SECRECY = ["don't tell", "dont tell", "do not tell", "not to tell", "secret", "keep this", "between us", "nobody needs to know"]
 DENIAL = ["no one asked", "nobody asked", "no one contacted", "nobody contacted", "no one called", "nobody called",
           "my own idea", "i decided myself"]
 STORY = ["bail", "jail", "school fees", "tuition", "irs", "taxes owed", "warrant", "lawyer", "hospital",
@@ -64,11 +64,11 @@ def _parse_json(text: str):
 
 def llm_detect(answer: str, question: str, transfer: dict, risk_reasons) -> dict:
     from langchain.chat_models import init_chat_model  # imported lazily
-    model = init_chat_model(config.MODEL, temperature=0)
+    model = init_chat_model(config.MODEL, temperature=0, timeout=20, max_retries=1)
     msg = PROMPT.format(transfer=json.dumps(transfer), reasons=", ".join(risk_reasons or []),
                         question=question, answer=answer)
     out = model.invoke(msg)
-    data = _parse_json(getattr(out, "content", str(out)))
+    data = _parse_json(getattr(out, "text", None) or str(getattr(out, "content", out)))
     data["detector"] = "llm"
     return data
 
