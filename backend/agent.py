@@ -19,7 +19,7 @@ import logging
 import os
 import threading
 
-from . import config, db, memory, pipeline
+from . import config, db, memory, pipeline, playbooks
 
 log = logging.getLogger("agent")
 FS_ROOT = os.path.join(os.path.dirname(config.DB_PATH) or "data", "agent_fs")
@@ -28,7 +28,9 @@ PLANNER_PROMPT = """You are Scam Interrupt, an agent that protects bank customer
 You get one EVENT and a transfer_id. Work like this:
 
 1. Call record_plan(transfer_id, steps) with 3-5 short steps for this event.
-2. Read /customers/<customer_id>/profile.md and /cases/<transfer_id>/notes.md.
+2. Read /customers/<customer_id>/profile.md and /cases/<transfer_id>/notes.md. Scam playbooks are in
+   /playbooks/ (one file per scam type): if the case check has a scam_type, read that playbook and
+   name the scam in your notes. If a follow-up question was asked, delegate to the interviewer.
 3. Follow the rules for the event:
    - EVENT transfer_scored (risk is high): delegate to the risk-analyst sub-agent to explain the risk and
      append a "## Risk analysis" section to the case notes. Then call send_safety_check.
@@ -161,6 +163,13 @@ def update_memory(customer_id: str) -> str:
 
 MAIN_TOOLS = [record_plan, write_todos, append_note, get_case, send_safety_check, release_transfer, update_memory]
 SUBAGENTS = [
+    {"name": "interviewer", "description": "Reviews the adaptive follow-up: the question asked, both answers, and "
+     "whether the follow-up revealed coaching. Give it the transfer_id.",
+     "system_prompt": ("You are the interviewer. Call get_case. The check has the first answer, the follow-up "
+                       "question and the second answer. In 2-3 sentences say what the follow-up revealed and why it "
+                       "was hard for a scammer to script. Call append_note(transfer_id, \"Follow-up review\", ...). "
+                       "Only call tools you have been given."),
+     "tools": [get_case, append_note]},
     {"name": "risk-analyst", "description": "Explains why a transfer is risky using the case and the customer's profile; "
      "writes the Risk analysis section of the case notes.", "system_prompt": RISK_ANALYST_PROMPT, "tools": [get_case, write_todos, append_note]},
     {"name": "coaching-detector", "description": "Judges the customer's safety-check answer for scammer coaching and "
@@ -274,18 +283,8 @@ _last_thread = None
 
 
 def _fast_reply(transfer_id: int, answer: str) -> None:
-    """Instant, proven path for the customer's reply (same logic as the pipeline, minus logging the inbound)."""
-    t = pipeline.get_case(transfer_id)["transfer"]
-    if t["status"] != "awaiting_customer":
-        return
-    verdict = pipeline.analyze_reply(transfer_id, answer)
-    if verdict["coached"]:
-        pipeline.alert_family(transfer_id)
-    else:
-        pipeline.release_transfer(transfer_id, "Safety check passed.")
-        pipeline.messaging.send(t["customer_id"], "Thank you. Your payment has been sent. "
-                                                  "Remember: we'll never ask you to keep a payment secret.", transfer_id)
-        pipeline.update_memory(t["customer_id"])
+    """Instant, proven path: judge the reply, ask one follow-up if unclear, then alert family or release."""
+    pipeline.handle_reply(transfer_id, answer)
 
 
 def _invoke(event: str, transfer_id: int, extra: dict | None = None, review: bool = False) -> str:
@@ -293,6 +292,7 @@ def _invoke(event: str, transfer_id: int, extra: dict | None = None, review: boo
     t = pipeline.get_case(transfer_id)["transfer"]
     profile = write_profile(t["customer_id"])
     ensure_notes(transfer_id)
+    playbooks.write_files(FS_ROOT)
     payload = {"event": event, "transfer_id": transfer_id, "customer_id": t["customer_id"], **(extra or {})}
     if review:
         payload["mode"] = "review"

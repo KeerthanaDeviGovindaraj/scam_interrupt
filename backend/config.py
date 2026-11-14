@@ -31,5 +31,11 @@ DAVID_PHONE = env("DAVID_PHONE", "+15550000002")
 DB_PATH = env("DB_PATH", "data/scam_interrupt.db")
 MOCK_NESSIE_PATH = env("MOCK_NESSIE_PATH", "data/mock_nessie.json")
 
+# Upgrades
+FOLLOW_UP = env("FOLLOW_UP", "true").lower() in ("1", "true", "yes")      # adaptive follow-up question
+NESSIE_HOLD = env("NESSIE_HOLD", "app").lower()                           # app | hook (Nessie decision hooks)
+NESSIE_HOOK_SECRET = env("NESSIE_HOOK_SECRET")
+PUBLIC_URL = env("PUBLIC_URL")                                             # e.g. https://abc.ngrok-free.app
+
 # Risk thresholds
 RISK_HIGH = 50       # score >= this -> hold + safety check

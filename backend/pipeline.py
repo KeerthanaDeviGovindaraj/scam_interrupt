@@ -9,7 +9,7 @@ Shared case object (see docs/case_schema.md): get_case(transfer_id).
 import json
 from datetime import datetime
 
-from . import coaching, db, memory, messaging, risk
+from . import coaching, config, db, followup, memory, messaging, nessie_hooks, playbooks, risk
 from .nessie import get_nessie
 
 SAFETY_QUESTION = ("Hi {first}, this is your bank's safety check. Before we send ${amount:,.0f} to {payee}: "
@@ -35,6 +35,17 @@ def _set(transfer_id, **fields):
 
 
 # ---------- tools ----------
+def _open_in_nessie(transfer_id: int) -> None:
+    """Hook mode: create the transfer in Nessie now; the bank holds it until we decide."""
+    t = db.q1("SELECT * FROM transfers WHERE id=?", (transfer_id,))
+    acct = db.q1("SELECT nessie_account_id FROM customers WHERE id=?", (t["customer_id"],))["nessie_account_id"]
+    try:
+        obj = get_nessie().create_transfer(acct, t["payee_id"], t["amount"], f"Scam Interrupt #{transfer_id}")
+        _set(transfer_id, nessie_ref=str(obj.get("id") or obj.get("_id") or ""))
+    except Exception as e:  # noqa: BLE001 - e.g. insufficient funds; fall back to holding in our app
+        _set(transfer_id, note=f"Nessie: {str(e)[:180]}")
+
+
 def watchlist_hits(payee_id: str) -> int:
     """How many transfers to this payee were cancelled as scams, across ALL customers (bank-wide)."""
     r = db.q1("SELECT COUNT(*) AS n FROM transfers WHERE payee_id=? AND status='cancelled'", (payee_id,))
@@ -73,6 +84,8 @@ def create_and_score(customer_id, payee_id, payee_name, payee_kind, amount, cate
                    risk_score,risk_level,reasons,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (customer_id, payee_id, payee_name, payee_kind, category, float(amount), hour, "scoring",
                  r["score"], r["level"], json.dumps(r["reasons"]), db.now(), db.now()))
+    if config.NESSIE_HOLD == "hook" and payee_kind == "account":
+        _open_in_nessie(tid)
     return {"transfer_id": tid, **r}
 
 
@@ -82,6 +95,11 @@ def release_transfer(transfer_id: int, note: str = "") -> dict:
     if t["status"] in ("released", "cancelled"):
         return {"status": t["status"], "skipped": True}
     acct = db.q1("SELECT nessie_account_id FROM customers WHERE id=?", (t["customer_id"],))["nessie_account_id"]
+    if config.NESSIE_HOLD == "hook" and t.get("nessie_ref") and t["payee_kind"] == "account":
+        if nessie_hooks.approve(t["nessie_ref"], note):
+            _set(transfer_id, status="released", note=note)
+            return {"status": "released", "nessie_ref": t["nessie_ref"]}
+        # the bank's decision window closed (e.g. declined after 5 minutes): send a fresh transfer
     n = get_nessie()
     if t["payee_kind"] == "merchant":
         obj = n.create_purchase(acct, t["payee_id"], t["amount"], f"Scam Interrupt release #{transfer_id}")
@@ -93,8 +111,11 @@ def release_transfer(transfer_id: int, note: str = "") -> dict:
 
 
 def cancel_transfer(transfer_id: int, note: str = "") -> dict:
-    """Cancel a held transfer. Nothing is ever sent to Nessie."""
+    """Cancel a held transfer. App mode: nothing reaches Nessie. Hook mode: the bank declines it."""
     _set(transfer_id, status="cancelled", note=note)
+    t = db.q1("SELECT nessie_ref FROM transfers WHERE id=?", (transfer_id,))
+    if config.NESSIE_HOLD == "hook" and t and t.get("nessie_ref"):
+        nessie_hooks.decline(t["nessie_ref"], note)
     return {"status": "cancelled"}
 
 
@@ -156,6 +177,63 @@ def update_memory(customer_id: str) -> dict:
 
 
 # ---------- deterministic orchestration (AGENT_MODE=pipeline) ----------
+def _first(customer_id: str) -> str:
+    c = db.q1("SELECT name FROM customers WHERE id=?", (customer_id,))
+    return c["name"].split()[0] if c else "there"
+
+
+def _set_scam(transfer_id: int, scam_key) -> None:
+    db.ex("UPDATE transfers SET scam_type=? WHERE id=?", (playbooks.name(scam_key) if scam_key else None, transfer_id))
+
+
+def awaiting_followup(transfer_id: int) -> bool:
+    chk = get_case(transfer_id)["check"]
+    return bool(chk and chk.get("followup_question") and not chk.get("followup_answer"))
+
+
+def handle_reply(transfer_id: int, answer: str) -> dict:
+    """Judge the customer's answer; ask ONE follow-up if it's unclear; then alert family or release."""
+    case = get_case(transfer_id)
+    t, chk = case["transfer"], case["check"]
+    if t["status"] != "awaiting_customer" or not chk:
+        return {"action": "none"}
+    first = _first(t["customer_id"])
+    if config.FOLLOW_UP:
+        if awaiting_followup(transfer_id):
+            r = followup.classify(answer, t, chk["question"], first_answer=chk.get("transcript") or "",
+                                  follow_up_question=chk["followup_question"])
+            db.ex("""UPDATE checks SET followup_answer=?, transcript=?, signals=?, coached=?, explanation=?,
+                     detector=?, scam_type=? WHERE id=?""",
+                  (answer, (chk.get("transcript") or "") + "\n" + answer, json.dumps(r["signals"]),
+                   int(r["verdict"] == "coached"), r["explanation"], r["detector"], r["scam_type"], chk["id"]))
+        else:
+            r = followup.classify(answer, t, chk["question"])
+            if r["verdict"] == "unclear":
+                q = followup.question(answer, t, first, r["scam_type"])
+                db.ex("""UPDATE checks SET transcript=?, signals=?, explanation=?, detector=?, scam_type=?,
+                         followup_question=? WHERE id=?""",
+                      (answer, json.dumps(r["signals"]), r["explanation"], r["detector"], r["scam_type"], q, chk["id"]))
+                messaging.send(t["customer_id"], q, transfer_id)
+                return {"action": "followup", "question": q, **r}
+            db.ex("UPDATE checks SET transcript=?, signals=?, coached=?, explanation=?, detector=?, scam_type=? WHERE id=?",
+                  (answer, json.dumps(r["signals"]), int(r["verdict"] == "coached"), r["explanation"], r["detector"],
+                   r["scam_type"], chk["id"]))
+        coached, scam = r["verdict"] == "coached", r["scam_type"]
+    else:
+        r = analyze_reply(transfer_id, answer)
+        coached, scam = r["coached"], playbooks.match(answer)
+        db.ex("UPDATE checks SET scam_type=? WHERE id=?", (scam, chk["id"]))
+    _set_scam(transfer_id, scam if coached else None)
+    if coached:
+        alert_family(transfer_id, followup.family_message(first, scam))
+        return {"action": "alert", "scam_type": scam}
+    release_transfer(transfer_id, "Safety check passed.")
+    messaging.send(t["customer_id"], "Thank you. Your payment has been sent. "
+                                     "Remember: we'll never ask you to keep a payment secret.", transfer_id)
+    update_memory(t["customer_id"])
+    return {"action": "release"}
+
+
 def on_transfer_requested(**kw) -> dict:
     scored = create_and_score(**kw)
     tid = scored["transfer_id"]
@@ -172,14 +250,7 @@ def on_customer_reply(transfer_id: int, answer: str) -> dict:
     messaging.record_inbound(t["customer_id"], answer, transfer_id)
     if t["status"] != "awaiting_customer":
         return get_case(transfer_id)
-    result = analyze_reply(transfer_id, answer)
-    if result["coached"]:
-        alert_family(transfer_id)
-    else:
-        release_transfer(transfer_id, "Safety check passed.")
-        messaging.send(t["customer_id"], "Thank you. Your payment has been sent. "
-                                         "Remember: we'll never ask you to keep a payment secret.", transfer_id)
-        update_memory(t["customer_id"])
+    handle_reply(transfer_id, answer)
     return get_case(transfer_id)
 
 
@@ -201,6 +272,8 @@ def on_family_decision(transfer_id: int, decision: str) -> dict:
                                          "If you still want to send it, you can choose Send anyway in your bank app.",
                        transfer_id)
         messaging.send(alert["contact_id"], f"Done: ${t['amount']:,.0f} stayed in the account.", transfer_id)
+        chk = get_case(transfer_id)["check"] or {}
+        messaging.send(t["customer_id"], followup.customer_tip(chk.get("scam_type")), transfer_id)
     update_memory(t["customer_id"])
     return get_case(transfer_id)
 

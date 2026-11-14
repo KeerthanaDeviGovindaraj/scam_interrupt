@@ -113,7 +113,7 @@ def customer_reply(transfer_id: int, body: ReplyIn):
         except Exception as e:
             log.exception("agent failed, falling back: %s", e)
         t = db.q1("SELECT status FROM transfers WHERE id=?", (transfer_id,))
-        if t["status"] == "awaiting_customer":  # agent did nothing useful -> fixed flow
+        if t["status"] == "awaiting_customer" and not pipeline.awaiting_followup(transfer_id):  # agent did nothing -> fixed flow
             db.ex("DELETE FROM messages WHERE id=(SELECT MAX(id) FROM messages WHERE transfer_id=? AND direction='in')",
                   (transfer_id,))
             return pipeline.on_customer_reply(transfer_id, body.text)
@@ -172,6 +172,11 @@ async def photon_webhook(request: Request):
 def case_notes(transfer_id: int):
     from . import agent
     return {"transfer_id": transfer_id, "notes": agent.read_notes(transfer_id)}
+
+
+from .nessie_hooks import router as nessie_router  # noqa: E402
+if nessie_router is not None:
+    app.include_router(nessie_router)
 
 
 app.mount("/web", StaticFiles(directory="web", html=True), name="web")
