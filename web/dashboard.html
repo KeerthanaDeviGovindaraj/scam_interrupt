@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Bank dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"></head>
+<body><script src="nav.js"></script><main>
+<div class="stats">
+ <div class="stat"><div class="n big" id="prot">$0</div><div class="l">Money protected</div></div>
+ <div class="stat"><div class="n" id="stopped">0</div><div class="l">Scams stopped</div></div>
+ <div class="stat"><div class="n" id="smooth">0</div><div class="l">Sent with no interruption</div></div>
+ <div class="stat"><div class="n" id="far">0%</div><div class="l">False-alarm rate (checks that cleared)</div></div>
+</div><br>
+<div class="card"><h2>All transfers</h2><table><thead><tr><th>#</th><th>Customer</th><th>To</th><th>Amount</th><th>Risk</th><th>Status</th><th>Reasons</th><th>Note</th></tr></thead>
+<tbody id="rows"></tbody></table></div>
+</main><script>
+async function load(){
+  const d = await api("/api/dashboard");
+  prot.textContent = money(d.money_protected); stopped.textContent = d.scams_stopped;
+  smooth.textContent = d.sent_without_interruption; far.textContent = Math.round(d.false_alarm_rate*100)+"%";
+  rows.innerHTML = d.transfers.map(t=>`<tr><td>${t.id}</td><td>${t.customer_id}</td><td>${t.payee_name}</td><td>${money(t.amount)}</td>
+   <td>${t.risk_score} (${t.risk_level})</td><td>${pill(t.status)}</td><td class="reasons">${(t.reasons||[]).join(", ")}</td><td class="muted">${t.note||""}</td></tr>`).join("");
+}
+load(); setInterval(load, 2000);
+</script></body></html>

@@ -1,0 +1,11 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+requests>=2.31
+python-dotenv>=1.0
+# Agent + LLM (optional: the app runs in rule-based mode without them)
+deepagents
+langchain>=0.3
+# Add the provider package for the model you choose, for example:
+# langchain-anthropic   (MODEL=anthropic:claude-sonnet-4-5)
+# langchain-aws         (MODEL=bedrock_converse:<model-id>)
+# langchain-openai      (MODEL=openai:gpt-4o-mini)

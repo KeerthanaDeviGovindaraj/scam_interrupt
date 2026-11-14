@@ -1,0 +1,199 @@
+"""The Scam Interrupt case flow, as small tools.
+
+The same functions are used two ways:
+  * AGENT_MODE=pipeline   -> run in a fixed order (safest for the live demo)
+  * AGENT_MODE=deepagents -> exposed as tools to the deepagents planner (agent.py)
+
+Shared case object (see docs/case_schema.md): get_case(transfer_id).
+"""
+import json
+from datetime import datetime
+
+from . import coaching, db, memory, messaging, risk
+from .nessie import get_nessie
+
+SAFETY_QUESTION = ("Hi {first}, this is your bank's safety check. Before we send ${amount:,.0f} to {payee}: "
+                   "did someone contact you and ask you to send this? Did they say it was urgent or secret? "
+                   "You can just reply in your own words.")
+
+
+# ---------- read ----------
+def get_case(transfer_id: int) -> dict:
+    t = db.q1("SELECT * FROM transfers WHERE id=?", (transfer_id,))
+    if not t:
+        raise ValueError(f"transfer {transfer_id} not found")
+    customer = db.q1("SELECT id,name,trusted_contact_id,family_opt_in FROM customers WHERE id=?", (t["customer_id"],))
+    check = db.q1("SELECT * FROM checks WHERE transfer_id=? ORDER BY id DESC LIMIT 1", (transfer_id,))
+    alert = db.q1("SELECT * FROM alerts WHERE transfer_id=? ORDER BY id DESC LIMIT 1", (transfer_id,))
+    return {"transfer": t, "customer": customer, "check": check, "alert": alert}
+
+
+def _set(transfer_id, **fields):
+    fields["updated_at"] = db.now()
+    cols = ", ".join(f"{k}=?" for k in fields)
+    db.ex(f"UPDATE transfers SET {cols} WHERE id=?", (*fields.values(), transfer_id))
+
+
+# ---------- tools ----------
+def create_and_score(customer_id, payee_id, payee_name, payee_kind, amount, category="transfer", hour=None) -> dict:
+    """Record a requested transfer (NOT sent to Nessie yet) and score its risk."""
+    hour = datetime.now().hour if hour is None else int(hour)
+    habits = memory.get_habits(customer_id)
+    r = risk.score(float(amount), payee_id, category, hour, habits)
+    tid = db.ex("""INSERT INTO transfers (customer_id,payee_id,payee_name,payee_kind,category,amount,hour,status,
+                   risk_score,risk_level,reasons,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (customer_id, payee_id, payee_name, payee_kind, category, float(amount), hour, "scoring",
+                 r["score"], r["level"], json.dumps(r["reasons"]), db.now(), db.now()))
+    return {"transfer_id": tid, **r}
+
+
+def release_transfer(transfer_id: int, note: str = "") -> dict:
+    """Send the transfer to Nessie now. Only called for low risk or after approval."""
+    t = db.q1("SELECT * FROM transfers WHERE id=?", (transfer_id,))
+    if t["status"] in ("released", "cancelled"):
+        return {"status": t["status"], "skipped": True}
+    acct = db.q1("SELECT nessie_account_id FROM customers WHERE id=?", (t["customer_id"],))["nessie_account_id"]
+    n = get_nessie()
+    if t["payee_kind"] == "merchant":
+        obj = n.create_purchase(acct, t["payee_id"], t["amount"], f"Scam Interrupt release #{transfer_id}")
+    else:
+        obj = n.create_transfer(acct, t["payee_id"], t["amount"], f"Scam Interrupt release #{transfer_id}")
+    _set(transfer_id, status="released", nessie_ref=obj.get("_id"), note=note)
+    return {"status": "released", "nessie_ref": obj.get("_id")}
+
+
+def cancel_transfer(transfer_id: int, note: str = "") -> dict:
+    """Cancel a held transfer. Nothing is ever sent to Nessie."""
+    _set(transfer_id, status="cancelled", note=note)
+    return {"status": "cancelled"}
+
+
+def send_safety_check(transfer_id: int) -> dict:
+    """Hold the transfer and ask the customer the safety question."""
+    t = db.q1("SELECT * FROM transfers WHERE id=?", (transfer_id,))
+    c = db.q1("SELECT name FROM customers WHERE id=?", (t["customer_id"],))
+    question = SAFETY_QUESTION.format(first=c["name"].split()[0], amount=t["amount"], payee=t["payee_name"])
+    db.ex("INSERT INTO checks (transfer_id,question,created_at) VALUES (?,?,?)", (transfer_id, question, db.now()))
+    _set(transfer_id, status="awaiting_customer")
+    messaging.send(t["customer_id"], question, transfer_id)
+    return {"status": "awaiting_customer", "question": question}
+
+
+def analyze_reply(transfer_id: int, answer: str) -> dict:
+    """Coaching Detector: read the customer's answer and decide if they are being coached."""
+    case = get_case(transfer_id)
+    t, chk = case["transfer"], case["check"]
+    result = coaching.detect(answer, chk["question"] if chk else "",
+                             {"amount": t["amount"], "payee": t["payee_name"], "hour": t["hour"],
+                              "category": t["category"]}, t["reasons"])
+    db.ex("UPDATE checks SET transcript=?, signals=?, coached=?, explanation=?, detector=? WHERE id=?",
+          ((chk["transcript"] + "\n" if chk and chk["transcript"] else "") + answer,
+           json.dumps(result["signals"]), int(result["coached"]), result["explanation"], result["detector"],
+           chk["id"]))
+    return result
+
+
+def alert_family(transfer_id: int) -> dict:
+    """Message the opted-in trusted contact with Approve / Cancel."""
+    case = get_case(transfer_id)
+    t, cust, chk = case["transfer"], case["customer"], case["check"]
+    if not (cust["trusted_contact_id"] and cust["family_opt_in"]):
+        _set(transfer_id, status="held_review", note="No opted-in trusted contact; held for bank review.")
+        messaging.send(t["customer_id"], "We've paused this payment for a quick review by our team. "
+                                         "You'll hear from us shortly.", transfer_id)
+        return {"status": "held_review"}
+    first = cust["name"].split()[0]
+    signals = "; ".join(chk["signals"]) if chk and chk["signals"] else ", ".join(t["reasons"])
+    text = (f"Scam Interrupt alert: {first} is trying to send ${t['amount']:,.0f} to {t['payee_name']}, "
+            f"a new payee, at {t['hour']}:00. Warning signs: {signals}. "
+            f"Please call {first} now, then choose Approve or Cancel.")
+    db.ex("INSERT INTO alerts (transfer_id,contact_id,message,created_at) VALUES (?,?,?,?)",
+          (transfer_id, cust["trusted_contact_id"], text, db.now()))
+    _set(transfer_id, status="awaiting_family")
+    messaging.send(cust["trusted_contact_id"], text, transfer_id, options=["Approve", "Cancel"])
+    messaging.send(t["customer_id"], f"Thanks {first}. We've paused this payment and let your trusted contact "
+                                     "know, just to be safe. Nothing has been sent.", transfer_id)
+    return {"status": "awaiting_family"}
+
+
+def update_memory(customer_id: str) -> dict:
+    """Refresh the customer's normal habits after every outcome."""
+    return memory.rebuild_habits(customer_id)
+
+
+# ---------- deterministic orchestration (AGENT_MODE=pipeline) ----------
+def on_transfer_requested(**kw) -> dict:
+    scored = create_and_score(**kw)
+    tid = scored["transfer_id"]
+    if scored["level"] == "high":
+        send_safety_check(tid)
+    else:
+        release_transfer(tid, "Normal payment, no interruption.")
+        update_memory(kw["customer_id"])
+    return get_case(tid)
+
+
+def on_customer_reply(transfer_id: int, answer: str) -> dict:
+    t = db.q1("SELECT * FROM transfers WHERE id=?", (transfer_id,))
+    messaging.record_inbound(t["customer_id"], answer, transfer_id)
+    if t["status"] != "awaiting_customer":
+        return get_case(transfer_id)
+    result = analyze_reply(transfer_id, answer)
+    if result["coached"]:
+        alert_family(transfer_id)
+    else:
+        release_transfer(transfer_id, "Safety check passed.")
+        messaging.send(t["customer_id"], "Thank you. Your payment has been sent. "
+                                         "Remember: we'll never ask you to keep a payment secret.", transfer_id)
+        update_memory(t["customer_id"])
+    return get_case(transfer_id)
+
+
+def on_family_decision(transfer_id: int, decision: str) -> dict:
+    decision = decision.strip().lower()
+    case = get_case(transfer_id)
+    t, alert = case["transfer"], case["alert"]
+    if t["status"] != "awaiting_family" or not alert:
+        return case
+    messaging.record_inbound(alert["contact_id"], decision.capitalize(), transfer_id)
+    db.ex("UPDATE alerts SET decision=?, decided_at=? WHERE id=?", (decision, db.now(), alert["id"]))
+    if decision == "approve":
+        release_transfer(transfer_id, "Approved by trusted contact.")
+        messaging.send(t["customer_id"], "Your trusted contact approved it. Your payment has been sent.", transfer_id)
+        messaging.send(alert["contact_id"], "Done: the payment was released.", transfer_id)
+    else:
+        cancel_transfer(transfer_id, "Cancelled by trusted contact.")
+        messaging.send(t["customer_id"], "This payment was cancelled after a family check. Nothing was sent. "
+                                         "If you still want to send it, you can choose Send anyway in your bank app.",
+                       transfer_id)
+        messaging.send(alert["contact_id"], f"Done: ${t['amount']:,.0f} stayed in the account.", transfer_id)
+    update_memory(t["customer_id"])
+    return get_case(transfer_id)
+
+
+def on_customer_override(transfer_id: int) -> dict:
+    """The customer keeps the final say: they can still send a held or cancelled payment."""
+    t = db.q1("SELECT * FROM transfers WHERE id=?", (transfer_id,))
+    if t["status"] == "released":
+        return get_case(transfer_id)
+    _set(transfer_id, status="awaiting_customer")  # allow release from any held state
+    release_transfer(transfer_id, "Released at the customer's request after a safety check.")
+    messaging.send(t["customer_id"], "As you asked, your payment has been sent.", transfer_id)
+    update_memory(t["customer_id"])
+    return get_case(transfer_id)
+
+
+def dashboard() -> dict:
+    rows = db.q("SELECT * FROM transfers ORDER BY id DESC")
+    cancelled = [r for r in rows if r["status"] == "cancelled"]
+    checked = db.q("SELECT coached FROM checks WHERE coached IS NOT NULL")
+    false_alarms = sum(1 for c in checked if c["coached"] == 0)
+    return {
+        "money_protected": round(sum(r["amount"] for r in cancelled), 2),
+        "scams_stopped": len(cancelled),
+        "transfers_total": len(rows),
+        "sent_without_interruption": sum(1 for r in rows if r["status"] == "released" and r["risk_level"] != "high"),
+        "safety_checks": len(checked),
+        "false_alarm_rate": round(false_alarms / len(checked), 2) if checked else 0.0,
+        "transfers": rows,
+    }
