@@ -1,0 +1,21 @@
+# Who reviews what. Replace @GAYATRI_GITHUB with Gayatri's GitHub username.
+# Keerthana: agent + bank
+/backend/nessie.py      @KeerthanaDeviGovindaraj
+/backend/seed.py        @KeerthanaDeviGovindaraj
+/backend/risk.py        @KeerthanaDeviGovindaraj
+/backend/coaching.py    @KeerthanaDeviGovindaraj
+/backend/memory.py      @KeerthanaDeviGovindaraj
+/backend/pipeline.py    @KeerthanaDeviGovindaraj
+/backend/agent.py       @KeerthanaDeviGovindaraj
+/backend/db.py          @KeerthanaDeviGovindaraj
+/backend/config.py      @KeerthanaDeviGovindaraj
+/tests/                 @KeerthanaDeviGovindaraj
+# Gayatri: Photon + demo
+/backend/photon_adapter.py  @GAYATRI_GITHUB
+/backend/messaging.py       @GAYATRI_GITHUB
+/backend/app.py             @GAYATRI_GITHUB
+/web/                       @GAYATRI_GITHUB
+/docs/demo_script.md        @GAYATRI_GITHUB
+/README.md                  @GAYATRI_GITHUB
+# Shared contract: change only together
+/docs/case_schema.md    @KeerthanaDeviGovindaraj @GAYATRI_GITHUB

@@ -1,0 +1,33 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Phones</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"></head>
+<body><script src="nav.js"></script><main>
+<p class="muted" style="text-align:center">Phone simulator. With PHOTON_MODE=live the same messages also go through Photon to real phones.</p>
+<div class="phones">
+ <div class="phone"><div class="screen"><div class="ph-head">Mary (customer)</div><div class="msgs" id="m_mary"></div>
+  <div class="compose"><input id="reply" placeholder="Reply…" onkeydown="if(event.key==='Enter')sendReply()"><button onclick="sendReply()">Send</button></div></div></div>
+ <div class="phone"><div class="screen"><div class="ph-head">David (trusted contact)</div><div class="msgs" id="m_david"></div></div></div>
+</div></main><script>
+function render(el, msgs, isFamily){
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  el.innerHTML = msgs.map(m=>{
+    let html = `<div class="bubble ${m.direction}">${m.text}`;
+    if (isFamily && m.options && m.options.length && m.direction==="out")
+      html += `<div class="opts">${m.options.map(o=>`<button class="${o==="Cancel"?"danger":"ok"}" onclick="decide(${m.transfer_id},'${o.toLowerCase()}')">${o}</button>`).join("")}</div>`;
+    return html + "</div>";
+  }).join("");
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+async function poll(){
+  render(m_mary, await api("/api/phone/mary"), false);
+  render(m_david, await api("/api/phone/david"), true);
+}
+async function sendReply(){
+  const text = reply.value.trim(); if(!text) return;
+  const ts = await api("/api/transfers");
+  const t = ts.find(x=>x.customer_id==="mary" && x.status==="awaiting_customer");
+  if(!t){ alert("No payment is waiting for a safety check."); return; }
+  reply.value=""; await api(`/api/cases/${t.id}/reply`,{method:"POST",body:JSON.stringify({text})}); poll();
+}
+async function decide(id, d){ await api(`/api/cases/${id}/family`,{method:"POST",body:JSON.stringify({decision:d})}); poll(); }
+poll(); setInterval(poll, 1500);
+</script></body></html>

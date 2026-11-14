@@ -240,7 +240,7 @@ A pilot with a local credit union, live voice safety calls, and false-alarm trac
 
 ## Team
 
-- **Person A:** agent and bank (Nessie, Risk Scorer, Coaching Detector, deepagents planner)
-- **Person B:** Photon and demo (safety check, family alert, bank app, dashboard, pitch)
+- **Keerthana Devi Govindaraj** ([@KeerthanaDeviGovindaraj](https://github.com/KeerthanaDeviGovindaraj)): agent and bank (Nessie, Risk Scorer, Coaching Detector, deepagents planner)
+- **Gayatri Sawant**: Photon and demo (safety check, family alert, bank app, dashboard, pitch)
 
-<!-- Replace with your names, GitHub handles and Discord usernames. --># scam_interrupt
+See [`docs/WORK_SPLIT.md`](docs/WORK_SPLIT.md) for who owns which files.
