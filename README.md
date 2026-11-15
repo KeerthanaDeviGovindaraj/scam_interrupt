@@ -361,21 +361,32 @@ All 22 tests run offline, with no keys.
 
 ## Evaluation
 ```bash
-python -m scripts.eval_coaching      # writes docs/eval_results.md
+python -m scripts.eval_coaching      # 30-answer development set -> docs/eval_results.md
+python -m scripts.eval_heldout       # 10 held-out answers       -> docs/eval_heldout_results.md
 ```
-On our own **30-answer test set** (20 clear answers, 10 vague answers with a second reply):
+
+**Held-out test (the fairer number).** A teammate wrote 10 answers (5 scams, 5 honest) without seeing the
+rules. With the AI model and rules safety net:
 
 | Metric | Result |
 |---|---|
-| Scams caught | **15 / 15** |
-| False alarms (ordinary payments sent to family) | **1 / 15** |
-| Overall accuracy | **29 / 30 (96%)** |
-| Follow-up asked | 5 of 15 scams, 7 of 15 ordinary payments |
+| Scams caught | **5 / 5**, including scams with no matching playbook |
+| False alarms (honest payments sent to family) | **3 / 5** |
 
-**Honest notes:** this is our own small test set, not real-world data; the run used the AI model with the rules
-safety net (Groq rate limits sent part of it to the rules); and the rules were developed against these same
-cases. We're adding answers written independently by a teammate for a fairer score. See
-[`docs/eval_results.md`](docs/eval_results.md) for every case.
+All three false alarms had the same cause: honest people answered the question literally ("No one contacted
+me…", "Nobody, I'm paying the moving company…") or mentioned "today," and the rules safety net treated that
+as a red flag, overriding the model. We fixed it: "no one contacted me" now only counts when the rest of the
+answer is vague, and "today" alone is no longer pressure. Because the fix came after seeing these answers,
+we don't re-score this set as if it were still held out.
+
+**Development set.** 30 answers (20 clear, 10 vague with a second reply) that we built and tuned against:
+15 / 15 scams caught and 1 / 15 false alarms with the model and rules (96%). Rules alone now score 30 / 30, but
+since we tuned on these, treat that as a sanity check, not a result.
+
+**Honest notes:** both sets are small and written by us, not real-world data. Our design choice is to accept
+some false alarms (the family gets one message and the customer can still "Send anyway") rather than miss a
+scam. Next step: a larger independent set and false-alarm tracking over time. See
+[`docs/eval_heldout_results.md`](docs/eval_heldout_results.md) and [`docs/eval_results.md`](docs/eval_results.md).
 
 ## Demo script
 1. **Hook:** "Scammers coach older adults on exactly what to tell the bank."
