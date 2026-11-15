@@ -20,7 +20,7 @@ Built at **HackPrinceton Fall 2026** by Keerthana and Gayatri · Main track: **B
 ## Contents
 [The problem](#the-problem) · [What it does](#what-it-does) · [How we're different](#how-were-different) · [Screens](#screens) ·
 [Architecture](#architecture) · [How the agent works](#how-the-agent-works) · [Tech stack](#tech-stack) ·
-[Sponsor tools](#sponsor-tools) · [Design and accessibility](#design-and-accessibility) ·
+[Sponsor tools](#sponsor-tools) · [Hackathon tracks](#hackathon-tracks) · [Design and accessibility](#design-and-accessibility) ·
 [Run it](#run-it) · [Configuration](#configuration) · [API](#api) · [Project layout](#project-layout) ·
 [Tests](#tests) · [Evaluation](#evaluation) · [Demo script](#demo-script) · [Troubleshooting](#troubleshooting) ·
 [Challenges and what we learned](#challenges-and-what-we-learned) · [Privacy and safety](#privacy-and-safety) · [Team](#team)
@@ -28,6 +28,12 @@ Built at **HackPrinceton Fall 2026** by Keerthana and Gayatri · Main track: **B
 ---
 
 ## The problem
+Americans over 60 reported losing **about $3 billion** to fraud in 2025, five times more than in 2020, and the
+FTC estimates the real cost could be as high as **$119.5 billion**, because most fraud is never reported
+([FTC, *Protecting Older Consumers 2025–2026*, Oct 19, 2026](https://www.ftc.gov/news-events/news/press-releases/2026/10/ftc-issues-annual-report-congress-agencys-actions-protect-older-adults)).
+The FTC also found older adults more likely than younger adults to lose money to tech support, prize, romance,
+government impersonation and friend-or-family impersonation scams, the same patterns our scam playbooks cover.
+
 Scammers create panic ("your grandson is in jail," "your account is hacked"), then **coach their victims,
 often older adults, on exactly what to tell the bank**. Bank fraud checks ask yes/no questions the victim has
 already been told how to answer, and most protection tools alert family only **after** the money is gone.
@@ -135,7 +141,8 @@ for example before a first payment to a new payee
 - **Case notebook (real files):** `data/agent_fs/customers/<id>/profile.md` and
   `data/agent_fs/cases/<id>/notes.md`. Agents add sections with `append_note`, which keeps them in order and
   skips duplicates: Plan → Risk analysis → Safety check → Family alert → Agent review → Outcome.
-  See [`docs/sample_case_notes.md`](docs/sample_case_notes.md).
+  See [`docs/sample_case_notes.md`](docs/sample_case_notes.md). Runtime notes in `data/agent_fs/` are not
+  committed (they're in `.gitignore`).
 - **Guardrails:** money-moving tools refuse unsafe calls. The agent can't release a transfer while the family
   is deciding, can't alert family before a coached verdict, and can't release a high-risk transfer without a
   passed safety check.
@@ -195,6 +202,34 @@ We built with **Claude Code**, connected to **ChatOverflow** so our coding agent
 | **LangChain Deep Agents** | Planner, four sub-agents, planning tool, file system (case notebook + scam playbooks), guardrailed tools; traced in LangSmith |
 | **Amazon (Best Practical AI)** | A practical agent that reasons, acts on real transactions, and adapts to each customer's habits |
 | **ChatOverflow** | Our coding agents were connected while we built |
+
+## Hackathon tracks
+**Main track: Business and Enterprise.** Its description covers financial tools and cybersecurity, and Scam
+Interrupt is a fraud-prevention layer a bank would deploy for its customers.
+
+**Special tracks**
+
+| Track | How Scam Interrupt qualifies |
+|---|---|
+| **Capital One: Best Usage of Nessie** | Balances, bills and transaction history explain risk in the customer's terms; a bank-wide payee watchlist; Nessie decision hooks so the bank itself holds and declines a scam transfer |
+| **Photon: Messaging Agent** | The safety check, the adaptive follow-up conversation and the family alert run over iMessage via Photon 2.0 |
+| **LangChain: Best use of Deep Agents** | Planner, four sub-agents, a file system for case notes and scam playbooks, guardrailed tools, LangSmith traces |
+| **Amazon: Best Practical AI** | An everyday, end-to-end agent for a real user problem in finance and accessibility (details below) |
+| **ChatOverflow** | Our coding agents were connected while we built |
+
+**How we meet Amazon's criteria**
+
+| Amazon asked for | Scam Interrupt |
+|---|---|
+| AI someone would use every day, not only in a demo | Every payment is checked; normal ones pass silently, and it speaks up only when something looks wrong |
+| Reason, plan, take action and adapt | Reasons over real bank data, plans a check, holds the transfer and messages the customer and family, adapts its next question to the answer |
+| A problem that matters to a real user | Older adults losing money to scams, in finance and accessibility |
+| Handles it from start to finish | From the moment the customer taps Send to the money being stopped or released, with no fraud team needed |
+| Learns from context or feedback | Customer habits update after every outcome; every cancelled scam updates the bank-wide watchlist |
+| Makes the AI feel simple | One text answered in her own words, one tap for the family, plus a low-vision font, high contrast and larger text |
+
+Amazon allows any models and frameworks; switching the model to **Amazon Bedrock** is a one-line change
+(`MODEL=bedrock_converse:<model id>` with `langchain-aws` and AWS credentials).
 
 ## Design and accessibility
 Our users are often older adults, so the product is designed to be easy to read and calm to use:
@@ -292,7 +327,7 @@ scam-interrupt/
 ├── backend/
 │   ├── app.py              FastAPI routes, Photon webhook, case notes
 │   ├── pipeline.py         case flow as small tools (fast path)
-│   ├── agent.py            Deep Agents planner, 3 sub-agents, case notebook, guardrails, fast mode
+│   ├── agent.py            Deep Agents planner, 4 sub-agents, case notebook, guardrails, fast mode
 │   ├── risk.py             Risk Scorer rules
 │   ├── coaching.py         Coaching Detector (LLM JSON + rules safety net)
 │   ├── followup.py         adaptive follow-up: coached / calm / unclear, one personalized question
