@@ -46,8 +46,8 @@ already been told how to answer, and most protection tools alert family only **a
    Mary: *"He called from a new number and said not to tell his mom. Ray is his lawyer."*
 6. **Coaching Detector** (AI model + rules): secrecy, a new number, a third party collecting money → coached.
 7. **Family alert:** David, her opted-in trusted contact, reads *"This looks like a **grandparent emergency
-   scam**. Nothing has been sent yet. Ask Mary: did she call her grandchild back on their usual number?"* and
-   taps **Approve** or **Cancel**.
+   scam**. Nothing has been sent yet. Ask Mary: “Did you call your grandchild back on their usual number?”"* and
+   replies **APPROVE** or **CANCEL**.
 8. David cancels. The transfer **never settles**, and Mary gets a short, kind explanation of the scam so she
    recognizes it next time. She can still tap **Send anyway**: the customer keeps the final say.
 9. **Bank-wide watchlist:** Ray is now flagged for every customer. Anyone who tries to pay him gets
@@ -177,7 +177,7 @@ demo bank, customers and accounts (Ray is his own customer), deposits, **bills**
 history**, and **decision hooks** (`POST /webhooks` with `mode: decision`, `POST /transactions/{id}/decision`). An offline **mock Nessie** with the same interface lets us build and demo without Wi-Fi.
 
 **Messaging.** **Photon 2.0** sends the safety check and the family alert as iMessages and delivers replies
-to our webhook (exposed with a tunnel such as ngrok during development). An on-screen **phone simulator**
+to our webhook through a small TypeScript bridge (`photon-bridge/`, Spectrum SDK) running next to the app. An on-screen **phone simulator**
 mirrors every message.
 
 **Frontend.** Plain **HTML, CSS and JavaScript**, with no build step. Themes use CSS variables; the font is
@@ -225,8 +225,8 @@ reply as Mary → tap **Cancel** as David → Bank dashboard.
 1. **Nessie v2:** get a key at v2.nessieisreal.com. Set `NESSIE_MODE=live`, `NESSIE_KEY`, and `NESSIE_URL`,
    then run `python -m backend.seed` once. (It calls `POST /data/seed` and labels three accounts as Mary,
    David and Ray.)
-2. **Photon 2.0:** set `PHOTON_MODE=live`, `PHOTON_API_KEY`, and the demo phone numbers **before** seeding.
-   If replies arrive by webhook, expose `POST /webhooks/photon` on a public URL (for example `ngrok http 8000`).
+2. **Photon 2.0:** set `PHOTON_MODE=live` and the demo phone numbers **before** seeding. Create a Photon project with iMessage (app.photon.codes) and add each demo phone under **Users**. Then run the bridge (Node 22+): put `PROJECT_ID` and `PROJECT_SECRET` in `photon-bridge/.env`, and run `cd photon-bridge && npm install && npm run start`. Each person texts their assigned Photon line once (opt-in) so the bridge can message them.
+   The bridge forwards replies to `POST /webhooks/photon` on your laptop, so Photon needs no public URL.
 3. **Models (Groq):** `pip install langchain-groq`; set `MODEL`, `AGENT_MODEL` and `GROQ_API_KEY`.
 4. **Deep Agents + LangSmith:** set `AGENT_MODE=deepagents`, `AGENT_BACKGROUND=true`,
    `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT=scam-interrupt`.
@@ -292,7 +292,7 @@ scam-interrupt/
 ├── backend/
 │   ├── app.py              FastAPI routes, Photon webhook, case notes
 │   ├── pipeline.py         case flow as small tools (fast path)
-│   ├── agent.py            Deep Agents planner, 3 sub-agents, case notebook, guardrails, fast mode
+│   ├── agent.py            Deep Agents planner, 4 sub-agents, case notebook, guardrails, fast mode
 │   ├── risk.py             Risk Scorer rules
 │   ├── coaching.py         Coaching Detector (LLM JSON + rules safety net)
 │   ├── followup.py         adaptive follow-up: coached / calm / unclear, one personalized question
@@ -306,7 +306,7 @@ scam-interrupt/
 │   ├── db.py, config.py
 ├── photon-bridge/          TypeScript bridge to Photon (Spectrum SDK) for iMessage
 ├── web/                    index, bank, phones, dashboard, style.css, nav.js, logo.svg
-├── scripts/                try_coaching.py, eval_coaching.py, register_nessie_hook.py
+├── scripts/                try_coaching.py, eval_coaching.py, eval_heldout.py, register_nessie_hook.py
 ├── tests/                  test_core, test_agent, test_nessie_v2, test_followup, test_hooks
 ├── apply_upgrades.py       one-time patcher used to add the upgrades (safe to re-run)
 ├── docs/                   images, sample case notes, brand, playbook, demo script
@@ -339,8 +339,25 @@ On our own **30-answer test set** (20 clear answers, 10 vague answers with a sec
 
 **Honest notes:** this is our own small test set, not real-world data; the run used the AI model with the rules
 safety net (Groq rate limits sent part of it to the rules); and the rules were developed against these same
-cases. We're adding answers written independently by a teammate for a fairer score. See
+cases. Because of that, we also ran a held-out set written independently of the rules (below). See
 [`docs/eval_results.md`](docs/eval_results.md) for every case.
+
+### Held-out check (10 answers written independently of the rules)
+```bash
+python -m scripts.eval_heldout       # writes docs/eval_heldout_results.md
+```
+
+| Metric | Result |
+|---|---|
+| Scams caught | **5 / 5** |
+| False alarms (honest answers sent to family) | **3 / 5** |
+| Follow-up asked | 1 scam, 1 honest answer |
+
+**Honest notes:** a small set, written to be hard: some scams avoid obvious scam words, and some honest
+answers use words scammers coach ("today," "nobody contacted me," "lawyer"). All three false alarms were
+of that kind. The detector errs on the side of caution, but a flag is a family check, not a block, and the
+customer can always send anyway. When an honest answer was simply vague ("It's a payment"), the follow-up
+cleared it and the payment was sent without bothering the family. Reducing false alarms is our next step.
 
 ## Demo script
 1. **Hook:** "Scammers coach older adults on exactly what to tell the bank."
@@ -398,4 +415,4 @@ A pilot with a local credit union, voice safety calls, false-alarm tracking over
 ## Team
 - **Keerthana Devi Govindaraj** ([@KeerthanaDeviGovindaraj](https://github.com/KeerthanaDeviGovindaraj)):
   agent and bank (Nessie v2, Risk Scorer, Coaching Detector, Deep Agents planner)
-- **Gayatri Sawant:** Photon and demo (safety check, family alert, bank app, dashboard, pitch)
+- **Gayatri Sawant** ([@sawantgayatri19](https://github.com/sawantgayatri19)): Photon and demo (iMessage bridge with the Spectrum SDK, safety check and family alert on real phones, Nessie decision-hook setup, held-out evaluation, message wording, bank app, dashboard, pitch)
