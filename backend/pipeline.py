@@ -159,14 +159,14 @@ def alert_family(transfer_id: int, message: str = "") -> dict:
     facts = (f"{first} is trying to send ${t['amount']:,.0f} to {t['payee_name']} at {t['hour']}:00. "
              f"Warning signs: {signals}.")
     if message and message.strip():
-        text = f"Scam Interrupt alert: {message.strip()[:400]}\n\n{facts} Please call {first}, then choose Approve or Cancel."
+        text = f"Scam Interrupt alert: {message.strip()[:400]}\n\n{facts} Please call {first}, then reply APPROVE or CANCEL."
     else:
-        text = f"Scam Interrupt alert: {facts} Please call {first} now, then choose Approve or Cancel."
+        text = f"Scam Interrupt alert: {facts} Please call {first} now, then reply APPROVE or CANCEL."
     db.ex("INSERT INTO alerts (transfer_id,contact_id,message,created_at) VALUES (?,?,?,?)",
           (transfer_id, cust["trusted_contact_id"], text, db.now()))
     _set(transfer_id, status="awaiting_family")
     messaging.send(cust["trusted_contact_id"], text, transfer_id, options=["Approve", "Cancel"])
-    messaging.send(t["customer_id"], f"Thanks {first}. We've paused this payment and let your trusted contact "
+    messaging.send(t["customer_id"], f"Thanks, {first}. We've paused this payment and let your trusted contact "
                                      "know, just to be safe. Nothing has been sent.", transfer_id)
     return {"status": "awaiting_family"}
 
@@ -268,10 +268,10 @@ def on_family_decision(transfer_id: int, decision: str) -> dict:
         messaging.send(alert["contact_id"], "Done: the payment was released.", transfer_id)
     else:
         cancel_transfer(transfer_id, "Cancelled by trusted contact.")
-        messaging.send(t["customer_id"], "This payment was cancelled after a family check. Nothing was sent. "
+        messaging.send(t["customer_id"], "Your trusted contact asked us to cancel this payment, so nothing was sent. Your money is safe. "
                                          "If you still want to send it, you can choose Send anyway in your bank app.",
                        transfer_id)
-        messaging.send(alert["contact_id"], f"Done: ${t['amount']:,.0f} stayed in the account.", transfer_id)
+        messaging.send(alert["contact_id"], f"Done. The ${t['amount']:,.0f} is safe; nothing was sent.", transfer_id)
         chk = get_case(transfer_id)["check"] or {}
         messaging.send(t["customer_id"], followup.customer_tip(chk.get("scam_type")), transfer_id)
     update_memory(t["customer_id"])

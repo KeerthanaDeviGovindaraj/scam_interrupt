@@ -15,7 +15,7 @@ PLAYBOOKS = {
                      "accident", "hospital", "lawyer", "attorney", "don't tell", "not to tell", "new number"],
         "follow_up": "Thanks, {first}. How do you know {payee}, and did you call {relation} back on the number "
                      "you usually use for them?",
-        "family_ask": "Ask {first}: did she call her grandchild back on their usual number?",
+        "family_ask": "Ask {first}: “Did you call your grandchild back on their usual number?”",
         "customer_tip": "Scammers often pretend to be a grandchild in trouble and ask you to keep it secret. "
                         "Before sending money, hang up and call them back on the number you already have.",
     },
@@ -26,7 +26,7 @@ PLAYBOOKS = {
                      "government", "court", "deported"],
         "follow_up": "Thanks, {first}. Which office contacted you, and did you look up their number yourself "
                      "or use the one they gave you?",
-        "family_ask": "Ask {first}: which agency called, and did they demand payment by transfer or gift card?",
+        "family_ask": "Ask {first}: “Which agency called you, and did they demand a transfer or gift cards?”",
         "customer_tip": "Government agencies never demand immediate payment by transfer, gift card or crypto. "
                         "Hang up and call the agency on its official number.",
     },
@@ -39,7 +39,7 @@ PLAYBOOKS = {
                      "keep it safe"],
         "follow_up": "Thanks, {first}. Did someone from a bank tell you to move this money? Real banks never ask "
                      "customers to move money to keep it safe.",
-        "family_ask": "Ask {first}: did a caller say they were from the bank and tell her to move money?",
+        "family_ask": "Ask {first}: “Did someone saying they’re from the bank tell you to move money?”",
         "customer_tip": "Your bank will never ask you to move money to a \u201csafe account.\u201d If someone does, "
                         "hang up and call the number on the back of your card.",
     },
@@ -50,7 +50,7 @@ PLAYBOOKS = {
         "keywords": ["computer", "virus", "microsoft", "apple support", "refund", "pop-up", "popup", "remote",
                      "technician", "hacked computer"],
         "follow_up": "Thanks, {first}. Did someone ask to connect to your computer, or say you were owed a refund?",
-        "family_ask": "Ask {first}: is someone helping her with her computer or a refund right now?",
+        "family_ask": "Ask {first}: “Is someone helping you with your computer or a refund right now?”",
         "customer_tip": "Real tech companies don't call you about viruses or refunds. Never let a stranger "
                         "connect to your computer or send money to fix it.",
     },
@@ -62,7 +62,7 @@ PLAYBOOKS = {
                      "soldier", "plane ticket", "customs", "love"],
         "follow_up": "Thanks, {first}. Have you met {payee} in person, and is this for travel or an emergency "
                      "they told you about?",
-        "family_ask": "Ask {first}: has she met this person in real life?",
+        "family_ask": "Ask {first}: “Have you met this person in real life?”",
         "customer_tip": "Someone you've only met online who asks for money is very often a scammer, even after "
                         "months of talking.",
     },
@@ -71,7 +71,7 @@ PLAYBOOKS = {
         "summary": "The customer is told they won something but must pay fees or taxes first.",
         "keywords": ["won", "winner", "prize", "lottery", "sweepstakes", "jackpot", "claim fee", "processing fee"],
         "follow_up": "Thanks, {first}. Is this to collect a prize or winnings? Real prizes never ask you to pay first.",
-        "family_ask": "Ask {first}: was she told she won something?",
+        "family_ask": "Ask {first}: “Were you told you won something?”",
         "customer_tip": "If you have to pay to receive a prize, it isn't a prize. Real winnings never cost you money.",
     },
 }
@@ -80,7 +80,7 @@ GENERIC = {
     "name": "possible scam",
     "follow_up": "Thanks, {first}. How do you know {payee}, and did anyone ask you to send this quickly or "
                  "keep it private?",
-    "family_ask": "Ask {first} who asked her to send this, and whether she was told to keep it secret.",
+    "family_ask": "Ask {first}: “Who asked you to send this, and did they tell you to keep it secret?”",
     "customer_tip": "If anyone pressures you to send money quickly or secretly, stop and talk to someone you trust first.",
 }
 
