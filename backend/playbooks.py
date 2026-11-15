@@ -12,7 +12,7 @@ PLAYBOOKS = {
         "summary": "Someone pretends to be a grandchild or relative in trouble (jail, accident, hospital) "
                    "and asks for money fast and in secret.",
         "keywords": ["grandson", "granddaughter", "grandchild", "nephew", "niece", "bail", "jail", "arrested",
-                     "accident", "hospital", "lawyer", "attorney", "don't tell", "not to tell", "new number"],
+                     "accident", "hospital", "lawyer", "attorney", "don't tell", "not to tell", "new number", "lost his phone", "lost her phone", "friend's number", "someone else's phone"],
         "follow_up": "Thanks, {first}. How do you know {payee}, and did you call {relation} back on the number "
                      "you usually use for them?",
         "family_ask": "Ask {first}: “Did you call your grandchild back on their usual number?”",

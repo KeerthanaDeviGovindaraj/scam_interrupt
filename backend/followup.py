@@ -14,7 +14,8 @@ RELATION_WORDS = ["contractor", "landlord", "plumber", "electrician", "friend", 
                   "doctor", "dentist", "rent", "invoice", "every month", "agreed", "my daughter", "my son",
                   "my sister", "my brother", "my husband", "my wife", "license", "receipt", "met him", "met her",
                   "known him", "known her", "years", "monthly", "receipt", "treasurer", "brother-in-law",
-                  "sister-in-law", "toured"]
+                  "sister-in-law", "toured", "dentist", "bill", "moving company", "company", "will", "piano",
+                  "in person", "insurance"]
 FAMILY_WORDS = {"grandson": "your grandson", "granddaughter": "your granddaughter", "grandchild": "your grandchild",
                 "nephew": "your nephew", "niece": "your niece", "son": "your son", "daughter": "your daughter"}
 FORBIDDEN = ["password", "pin", "code", "account number", "social security number", "ssn"]
@@ -60,6 +61,8 @@ def _mentions_relation(text: str, payee: str) -> bool:
 
 
 STRONG = ("urgency or pressure", "secrecy", "denies being contacted")
+PRESSURE = ["hurry", "right now", "right away", "asap", "immediately", "please just", "quickly", "urgent",
+            "no time", "don't have time", "before it's too late"]
 
 
 def rule_classify(answer: str, transfer: dict, first_answer: str | None = None) -> dict:
@@ -67,7 +70,11 @@ def rule_classify(answer: str, transfer: dict, first_answer: str | None = None) 
     payee = transfer.get("payee_name", "")
     text = f"{first_answer or ''} {answer}".strip()
     base = coaching.rule_detect(answer, reasons)
-    strong = any(s in STRONG for s in base["signals"])
+    related = _mentions_relation(answer, payee)
+    a = answer.lower()
+    pressure = any(w in a for w in PRESSURE)                    # "today" alone is not pressure
+    # Answering "no one contacted me" is what honest people say too: it only counts when the rest is vague.
+    strong = pressure or "secrecy" in base["signals"] or ("denies being contacted" in base["signals"] and not related)
     story = any(s.startswith("story often used") for s in base["signals"])
     scam = playbooks.match(text)
     power = playbooks.strength(text)

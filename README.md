@@ -20,7 +20,7 @@ Built at **HackPrinceton Fall 2026** by Keerthana and Gayatri · Main track: **B
 ## Contents
 [The problem](#the-problem) · [What it does](#what-it-does) · [How we're different](#how-were-different) · [Screens](#screens) ·
 [Architecture](#architecture) · [How the agent works](#how-the-agent-works) · [Tech stack](#tech-stack) ·
-[Sponsor tools](#sponsor-tools) · [Design and accessibility](#design-and-accessibility) ·
+[Sponsor tools](#sponsor-tools) · [Hackathon tracks](#hackathon-tracks) · [Design and accessibility](#design-and-accessibility) ·
 [Run it](#run-it) · [Configuration](#configuration) · [API](#api) · [Project layout](#project-layout) ·
 [Tests](#tests) · [Evaluation](#evaluation) · [Demo script](#demo-script) · [Troubleshooting](#troubleshooting) ·
 [Challenges and what we learned](#challenges-and-what-we-learned) · [Privacy and safety](#privacy-and-safety) · [Team](#team)
@@ -28,6 +28,12 @@ Built at **HackPrinceton Fall 2026** by Keerthana and Gayatri · Main track: **B
 ---
 
 ## The problem
+Americans over 60 reported losing **about $3 billion** to fraud in 2025, five times more than in 2020, and the
+FTC estimates the real cost could be as high as **$119.5 billion**, because most fraud is never reported
+([FTC, *Protecting Older Consumers 2025–2026*, Oct 19, 2026](https://www.ftc.gov/news-events/news/press-releases/2026/10/ftc-issues-annual-report-congress-agencys-actions-protect-older-adults)).
+The FTC also found older adults more likely than younger adults to lose money to tech support, prize, romance,
+government impersonation and friend-or-family impersonation scams, the same patterns our scam playbooks cover.
+
 Scammers create panic ("your grandson is in jail," "your account is hacked"), then **coach their victims,
 often older adults, on exactly what to tell the bank**. Bank fraud checks ask yes/no questions the victim has
 already been told how to answer, and most protection tools alert family only **after** the money is gone.
@@ -135,7 +141,8 @@ for example before a first payment to a new payee
 - **Case notebook (real files):** `data/agent_fs/customers/<id>/profile.md` and
   `data/agent_fs/cases/<id>/notes.md`. Agents add sections with `append_note`, which keeps them in order and
   skips duplicates: Plan → Risk analysis → Safety check → Family alert → Agent review → Outcome.
-  See [`docs/sample_case_notes.md`](docs/sample_case_notes.md).
+  See [`docs/sample_case_notes.md`](docs/sample_case_notes.md). Runtime notes in `data/agent_fs/` are not
+  committed (they're in `.gitignore`).
 - **Guardrails:** money-moving tools refuse unsafe calls. The agent can't release a transfer while the family
   is deciding, can't alert family before a coached verdict, and can't release a high-risk transfer without a
   passed safety check.
@@ -195,6 +202,34 @@ We built with **Claude Code**, connected to **ChatOverflow** so our coding agent
 | **LangChain Deep Agents** | Planner, four sub-agents, planning tool, file system (case notebook + scam playbooks), guardrailed tools; traced in LangSmith |
 | **Amazon (Best Practical AI)** | A practical agent that reasons, acts on real transactions, and adapts to each customer's habits |
 | **ChatOverflow** | Our coding agents were connected while we built |
+
+## Hackathon tracks
+**Main track: Business and Enterprise.** Its description covers financial tools and cybersecurity, and Scam
+Interrupt is a fraud-prevention layer a bank would deploy for its customers.
+
+**Special tracks**
+
+| Track | How Scam Interrupt qualifies |
+|---|---|
+| **Capital One: Best Usage of Nessie** | Balances, bills and transaction history explain risk in the customer's terms; a bank-wide payee watchlist; Nessie decision hooks so the bank itself holds and declines a scam transfer |
+| **Photon: Messaging Agent** | The safety check, the adaptive follow-up conversation and the family alert run over iMessage via Photon 2.0 |
+| **LangChain: Best use of Deep Agents** | Planner, four sub-agents, a file system for case notes and scam playbooks, guardrailed tools, LangSmith traces |
+| **Amazon: Best Practical AI** | An everyday, end-to-end agent for a real user problem in finance and accessibility (details below) |
+| **ChatOverflow** | Our coding agents were connected while we built |
+
+**How we meet Amazon's criteria**
+
+| Amazon asked for | Scam Interrupt |
+|---|---|
+| AI someone would use every day, not only in a demo | Every payment is checked; normal ones pass silently, and it speaks up only when something looks wrong |
+| Reason, plan, take action and adapt | Reasons over real bank data, plans a check, holds the transfer and messages the customer and family, adapts its next question to the answer |
+| A problem that matters to a real user | Older adults losing money to scams, in finance and accessibility |
+| Handles it from start to finish | From the moment the customer taps Send to the money being stopped or released, with no fraud team needed |
+| Learns from context or feedback | Customer habits update after every outcome; every cancelled scam updates the bank-wide watchlist |
+| Makes the AI feel simple | One text answered in her own words, one tap for the family, plus a low-vision font, high contrast and larger text |
+
+Amazon allows any models and frameworks; switching the model to **Amazon Bedrock** is a one-line change
+(`MODEL=bedrock_converse:<model id>` with `langchain-aws` and AWS credentials).
 
 ## Design and accessibility
 Our users are often older adults, so the product is designed to be easy to read and calm to use:
@@ -326,38 +361,32 @@ All 22 tests run offline, with no keys.
 
 ## Evaluation
 ```bash
-python -m scripts.eval_coaching      # writes docs/eval_results.md
+python -m scripts.eval_coaching      # 30-answer development set -> docs/eval_results.md
+python -m scripts.eval_heldout       # 10 held-out answers       -> docs/eval_heldout_results.md
 ```
-On our own **30-answer test set** (20 clear answers, 10 vague answers with a second reply):
+
+**Held-out test (the fairer number).** A teammate wrote 10 answers (5 scams, 5 honest) without seeing the
+rules. With the AI model and rules safety net:
 
 | Metric | Result |
 |---|---|
-| Scams caught | **15 / 15** |
-| False alarms (ordinary payments sent to family) | **1 / 15** |
-| Overall accuracy | **29 / 30 (96%)** |
-| Follow-up asked | 5 of 15 scams, 7 of 15 ordinary payments |
+| Scams caught | **5 / 5**, including scams with no matching playbook |
+| False alarms (honest payments sent to family) | **3 / 5** |
 
-**Honest notes:** this is our own small test set, not real-world data; the run used the AI model with the rules
-safety net (Groq rate limits sent part of it to the rules); and the rules were developed against these same
-cases. Because of that, we also ran a held-out set written independently of the rules (below). See
-[`docs/eval_results.md`](docs/eval_results.md) for every case.
+All three false alarms had the same cause: honest people answered the question literally ("No one contacted
+me…", "Nobody, I'm paying the moving company…") or mentioned "today," and the rules safety net treated that
+as a red flag, overriding the model. We fixed it: "no one contacted me" now only counts when the rest of the
+answer is vague, and "today" alone is no longer pressure. Because the fix came after seeing these answers,
+we don't re-score this set as if it were still held out.
 
-### Held-out check (10 answers written independently of the rules)
-```bash
-python -m scripts.eval_heldout       # writes docs/eval_heldout_results.md
-```
+**Development set.** 30 answers (20 clear, 10 vague with a second reply) that we built and tuned against:
+15 / 15 scams caught and 1 / 15 false alarms with the model and rules (96%). Rules alone now score 30 / 30, but
+since we tuned on these, treat that as a sanity check, not a result.
 
-| Metric | Result |
-|---|---|
-| Scams caught | **5 / 5** |
-| False alarms (honest answers sent to family) | **3 / 5** |
-| Follow-up asked | 1 scam, 1 honest answer |
-
-**Honest notes:** a small set, written to be hard: some scams avoid obvious scam words, and some honest
-answers use words scammers coach ("today," "nobody contacted me," "lawyer"). All three false alarms were
-of that kind. The detector errs on the side of caution, but a flag is a family check, not a block, and the
-customer can always send anyway. When an honest answer was simply vague ("It's a payment"), the follow-up
-cleared it and the payment was sent without bothering the family. Reducing false alarms is our next step.
+**Honest notes:** both sets are small and written by us, not real-world data. Our design choice is to accept
+some false alarms (the family gets one message and the customer can still "Send anyway") rather than miss a
+scam. Next step: a larger independent set and false-alarm tracking over time. See
+[`docs/eval_heldout_results.md`](docs/eval_heldout_results.md) and [`docs/eval_results.md`](docs/eval_results.md).
 
 ## Demo script
 1. **Hook:** "Scammers coach older adults on exactly what to tell the bank."
