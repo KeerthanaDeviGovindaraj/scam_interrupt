@@ -6,4 +6,4 @@
 - Trusted contact: David Lee (opted in)
 
 ## Recent transfers
-- #1 $3,000 to Ray Collins: awaiting_family
+- #1 $3,000 to Ray Collins: awaiting_customer
